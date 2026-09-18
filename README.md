@@ -1,14 +1,17 @@
 # FocusTodo
 
-A focused todo application. This repository currently contains the verified
-**project foundation** (feature `001-project-foundation`): tooling, database
-baseline, design system, and app shell — ready for future task features.
+A focused todo application. This repository contains the verified **project
+foundation** (feature `001-project-foundation`) plus **email/password
+authentication** (feature `002-user-auth`) — tooling, database baseline,
+design system, app shell, and a full account/session layer with protected
+routes and sliding 30-day sessions.
 
 ## Product
 
 FocusTodo helps you keep a focused, fast todo list. The foundation feature
-delivers no task features itself; it proves every quality gate and the app
-shell end-to-end.
+proves every quality gate and the app shell end-to-end; user authentication
+adds registration, sign-in/sign-out, protected routes with redirects, and
+trustworthy revocable sessions. Task features arrive in future features.
 
 ## Features
 
@@ -17,12 +20,18 @@ shell end-to-end.
   Playwright E2E harness, disposable PostgreSQL 16 via Docker Compose,
   migration-based Prisma 7 schema baseline, health endpoint, light/dark/system
   theme system with no wrong-theme flash.
+- **002-user-auth (implemented)** — email/password registration and sign-in
+  (Auth.js Credentials), scrypt password hashing, DB-backed revocable
+  sessions with a sliding 30-day window, protected routes with
+  `?next=` destination preservation, signed-in bounce on auth views,
+  multi-tab revocation, and graceful expiry messaging.
 
 ## Tech stack
 
 - Next.js 16.3.5 (App Router, Turbopack), React 19.2.8, TypeScript 5 (strict)
 - Tailwind CSS 4 (PostCSS plugin, CSS-variable design tokens)
 - Prisma 7.10.0 + `@prisma/adapter-pg` (PostgreSQL 16 via Docker Compose)
+- next-auth 5.0.0-beta (Auth.js Credentials + JWT strategy) for authentication
 - Zod 4 (environment + shared input schemas), class-variance-authority,
   clsx, tailwind-merge (`cn()` helper)
 - Vitest 4 (unit), Playwright (E2E, Chromium), ESLint 9 flat config
@@ -36,8 +45,8 @@ shell end-to-end.
   exits with ONE actionable message on invalid configuration (fail fast).
 - **`src/server/db.ts`** — the only file importing Prisma; dev singleton on
   `globalThis` survives hot reload.
-- **`prisma/schema.prisma`** — intentionally empty baseline; schema changes are
-  migration-based (`db:migrate` / `db:deploy`), never `db push`.
+- **`prisma/schema.prisma`** — `User` + `Session` business models; schema
+  changes are migration-based (`db:migrate` / `db:deploy`), never `db push`.
 - **Design system** — `src/components/ui/*` primitives (shadcn/ui conventions)
   over CSS-variable tokens in `src/app/globals.css` (light values on `:root`,
   dark on `.dark`).
@@ -45,13 +54,15 @@ shell end-to-end.
 ## Project structure
 
 ```
-prisma/            schema.prisma (empty baseline), seed.ts, migrations/
-src/app/           App Router: layout.tsx, page.tsx, api/health/route.ts
+prisma/            schema.prisma (User + Session), migrations/, seed.ts
+src/app/           App Router: layout.tsx, (auth)/ register+sign-in, (protected)/ home, api/health
 src/components/    ui/ primitives, theme/ (provider + toggle)
+src/features/      auth/ (RegisterForm, SignInForm, SignOutButton)
 src/lib/           env.ts (validated env), utils.ts (cn)
-src/server/        db.ts (Prisma singleton — only Prisma import site)
+src/server/        db.ts (Prisma singleton), auth/ (Auth.js core, session service, scrypt), actions/
+src/middleware.ts  advisory edge protection (JWT presence check)
 src/validation/    shared Zod schemas (single source of truth)
-tests/             unit/ (Vitest), e2e/ (Playwright)
+tests/             unit/ + component/ (Vitest), e2e/ (Playwright)
 .specify/          Spec Kit artifacts (constitution, specs)
 ```
 
@@ -65,10 +76,13 @@ tests/             unit/ (Vitest), e2e/ (Playwright)
 Copy `.env.example` to `.env` — every listed variable is real and validated at
 startup by `src/lib/env.ts`:
 
-| Variable       | Required | Example                                                   |
-| -------------- | -------- | --------------------------------------------------------- |
-| `DATABASE_URL` | yes      | `postgresql://postgres:postgres@localhost:5432/focustodo` |
+| Variable       | Required | Example                                                    |
+| -------------- | -------- | ---------------------------------------------------------- |
+| `DATABASE_URL` | yes      | `postgresql://postgres:postgres@localhost:5432/focustodo`  |
+| `AUTH_SECRET`  | yes      | any value ≥ 32 characters (e.g. `openssl rand -base64 32`) |
 
+`AUTH_SECRET` signs the Auth.js session JWT. A missing or weak value exits
+startup with one actionable message naming the problem (fail fast, FR-012).
 Invalid configuration exits with one actionable message naming every problem.
 
 ## Local development
@@ -90,9 +104,11 @@ npm run db:migrate   # prisma migrate dev — create/apply local migrations
 npm run db:deploy    # prisma migrate deploy — apply without edits (fresh clone)
 ```
 
-The baseline ships with **zero migrations** (empty schema). `docker compose
-down -v` + `db:up` + `db:deploy` recreates the database from zero with no
-manual steps.
+The first business migration (`user_auth`) creates the `users` and `sessions`
+tables. On a fresh clone: `docker compose down -v` + `db:up` + `db:deploy`
+(or `db:migrate`) recreates the database from zero with no manual steps —
+the `users`/`sessions` tables, the email-unique constraint, and the
+`sessions.userId` / `sessions.expiresAt` indexes come with it.
 
 ## Quality gates
 
@@ -140,6 +156,28 @@ This project is developed with [Spec Kit](https://github.com/github/spec-kit):
   pre-hydration inline script; no theme library (D4).
 - **Minimal client JS** — the theme toggle is the only client component
   (FR-015).
+
+### Authentication
+
+- **DB-backed revocable sessions layered on Auth.js Credentials/JWT**
+  (research D1/D2): the JWT cookie carries ONLY an opaque `sessionId` claim;
+  the `Session` row is the authoritative, server-revocable identity source.
+  Deleting the row invalidates the JWT everywhere instantly (multi-tab
+  revocation = one DELETE). Every protected interaction resolves
+  claim → row and slides `expiresAt` to now + 30 days (no absolute cap).
+- **Timing-equalized sign-in** (research D6): unknown emails run a dummy
+  scrypt verification so wrong-password and unknown-email failures cost the
+  same and return ONE generic message ("Invalid email or password") —
+  account existence is not leakable through timing or response shape.
+- **Two-layer route protection** (research D8): an advisory edge middleware
+  (`src/middleware.ts` — JWT presence only, no DB) bounces obviously
+  anonymous requests early and preserves `?next=`; the authoritative guard
+  lives in the `(protected)` layout (`requireSession()` — the DB row
+  decides) and the `(auth)` layout bounces signed-in users from auth views.
+- **scrypt password hashing** (research D3): Node built-in `crypto.scrypt`
+  (N=16384, r=8, p=1, 64-byte key, per-hash random salt), stored as
+  `scrypt$N$r$p$<salt-b64>$<hash-b64>`; plaintext never touches storage,
+  logs, or responses.
 
 ## Troubleshooting
 

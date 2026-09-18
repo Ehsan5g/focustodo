@@ -149,8 +149,8 @@ Single full-stack Next.js project extending F001 in place (plan.md): `src/` + `t
 
 **Purpose**: Final compliance sweep and full-acceptance validation of the whole feature.
 
-- [ ] T039 [P] Update `README.md`: document `AUTH_SECRET` in the environment-variables section, refresh the local-development/database sections for the `user_auth` migration, and add an "Authentication" subsection under key architectural decisions (DB-backed revocable sessions layered on Auth.js Credentials/JWT â€” research D1/D2; timing-equalized sign-in â€” D6)
-- [ ] T040 Run the FR-015/SC acceptance sweep: execute the full quickstart.md S1â€“S10 manually, run every automated gate (`npm run typecheck && npm run lint && npm run format:check && npm run test && npm run test:e2e`) on the untouched feature, confirm zero plaintext passwords in storage/logs/responses (SC-005), and commit the completed feature on `002-user-auth`
+- [x] T039 [P] Update `README.md`: document `AUTH_SECRET` in the environment-variables section, refresh the local-development/database sections for the `user_auth` migration, and add an "Authentication" subsection under key architectural decisions (DB-backed revocable sessions layered on Auth.js Credentials/JWT â€” research D1/D2; timing-equalized sign-in â€” D6)
+- [x] T040 Run the FR-015/SC acceptance sweep: execute the full quickstart.md S1â€“S10 manually, run every automated gate (`npm run typecheck && npm run lint && npm run format:check && npm run test && npm run test:e2e`) on the untouched feature, confirm zero plaintext passwords in storage/logs/responses (SC-005), and commit the completed feature on `002-user-auth`
 
 ---
 
