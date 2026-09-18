@@ -133,13 +133,13 @@ Single full-stack Next.js project extending F001 in place (plan.md): `src/` + `t
 
 ### Tests for User Story 4 (write FIRST)
 
-- [ ] T035 [P] [US4] Write the failing E2E session-trust scenarios in `tests/e2e/auth.spec.ts` (D12): forged identity â€” replay another user's identifiers against a protected action â†’ the server ignores/rejects them, server-derived identity wins (FR-010); persistence â€” sign in, close the browser context, reopen with the stored cookies â†’ still signed in within the 30-day window; expiry â€” rewind a `Session.expiresAt` to the past in the dev DB, then the next protected interaction â†’ redirect to `/sign-in` with a clear non-technical explanation; multi-tab â€” sign out in tab A â†’ tab B's next interaction redirects to sign-in (US4 scenarios 1â€“3; edge cases)
+- [x] T035 [P] [US4] Write the failing E2E session-trust scenarios in `tests/e2e/auth.spec.ts` (D12): forged identity â€” replay another user's identifiers against a protected action â†’ the server ignores/rejects them, server-derived identity wins (FR-010); persistence â€” sign in, close the browser context, reopen with the stored cookies â†’ still signed in within the 30-day window; expiry â€” rewind a `Session.expiresAt` to the past in the dev DB, then the next protected interaction â†’ redirect to `/sign-in` with a clear non-technical explanation; multi-tab â€” sign out in tab A â†’ tab B's next interaction redirects to sign-in (US4 scenarios 1â€“3; edge cases)
 
 ### Implementation for User Story 4
 
-- [ ] T036 [US4] Make the expiry experience graceful: when the `(protected)` guard redirects with `reason=expired`, the sign-in view (`src/app/(auth)/sign-in/page.tsx`) shows a friendly non-technical notice ("Your session has expired. Please sign in again."); verify the sliding window via the session service â€” every protected interaction advances `expiresAt` to `now + 30 days`, no absolute cap (FR-011; makes T035's expiry scenario pass)
-- [ ] T037 [US4] Verify the auth-state-aware interface end-to-end (FR-012): signed-out pages show sign-in/registration entry points and no user-specific content (the guards + public pages already ensure this); every authenticated page shows the signed-in user's name and a functioning sign-out control (from T028); fix any gap found
-- [ ] T038 [US4] Validate US4 independently: T035 green (forged identity, persistence, expiry rewind, multi-tab); quickstart S8â€“S9 manual pass; gates green; commit
+- [x] T036 [US4] Make the expiry experience graceful: when the `(protected)` guard redirects with `reason=expired`, the sign-in view (`src/app/(auth)/sign-in/page.tsx`) shows a friendly non-technical notice ("Your session has expired. Please sign in again."); verify the sliding window via the session service â€” every protected interaction advances `expiresAt` to `now + 30 days`, no absolute cap (FR-011; makes T035's expiry scenario pass)
+- [x] T037 [US4] Verify the auth-state-aware interface end-to-end (FR-012): signed-out pages show sign-in/registration entry points and no user-specific content (the guards + public pages already ensure this); every authenticated page shows the signed-in user's name and a functioning sign-out control (from T028); fix any gap found
+- [x] T038 [US4] Validate US4 independently: T035 green (forged identity, persistence, expiry rewind, multi-tab); quickstart S8â€“S9 manual pass; gates green; commit
 
 **Checkpoint**: Sessions are provably trustworthy â€” server-derived identity only, revocable, sliding, graceful on expiry.
 

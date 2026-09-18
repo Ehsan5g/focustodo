@@ -356,3 +356,135 @@ test("browser Back after sign-out serves no protected content", async ({
   await expect(page).toHaveURL(/\/sign-in/);
   await expect(page.getByRole("button", { name: "Add a task" })).toHaveCount(0);
 });
+
+test("forged and stale session claims are ignored — the DB row decides (FR-010)", async ({
+  page,
+}) => {
+  const email = `forge-${runId}@test.local`;
+  await registerViaUi(page, {
+    name: "Forgey McForgeface",
+    email,
+    password: "password123",
+  });
+  await expect(page).toHaveURL(`${BASE_URL}/`);
+
+  // (a) A hand-forged session cookie: the signature check rejects it.
+  await page.context().clearCookies();
+  await page.context().addCookies([
+    {
+      name: "authjs.session-token",
+      value: "forged.signature.value",
+      domain: "localhost",
+      path: "/",
+    },
+  ]);
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/sign-in/);
+  await expect(page.getByText("Foundation is running")).toHaveCount(0);
+
+  // (b) A genuine JWT whose Session row is gone: the claim alone is NOT
+  // trusted — the server-derived identity (DB row) wins (FR-010).
+  await page.context().clearCookies();
+  await registerViaUi(page, {
+    name: "Staley McStaleface",
+    email: `stale-${runId}@test.local`,
+    password: "password123",
+  });
+  await expect(page).toHaveURL(`${BASE_URL}/`);
+  await pool.query(
+    'DELETE FROM sessions s USING users u WHERE s."userId" = u.id AND u.email = $1',
+    [`stale-${runId}@test.local`],
+  );
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/sign-in/);
+  await expect(page.getByText("Staley McStaleface")).toHaveCount(0);
+});
+
+test("sessions persist across a browser restart within the sliding window", async ({
+  page,
+  browser,
+}) => {
+  const email = `persist-${runId}@test.local`;
+  await registerViaUi(page, {
+    name: "Persisty McPersistface",
+    email,
+    password: "password123",
+  });
+  await expect(page).toHaveURL(`${BASE_URL}/`);
+
+  // "Restart": a fresh browser context replaying the stored cookies.
+  const cookies = await page.context().cookies();
+  const restarted = await browser.newContext();
+  await restarted.addCookies(cookies);
+  const reopened = await restarted.newPage();
+  await reopened.goto("/");
+  await expect(reopened).toHaveURL(`${BASE_URL}/`);
+  await expect(reopened.getByText("Persisty McPersistface")).toBeVisible();
+  await expect(
+    reopened.getByRole("button", { name: "Sign out" }),
+  ).toBeVisible();
+  await restarted.close();
+});
+
+test("expired sessions redirect gracefully with a clear explanation; live interactions slide expiresAt ~30 days out", async ({
+  page,
+}) => {
+  const email = `expire-${runId}@test.local`;
+  await registerViaUi(page, {
+    name: "Expiredy McExpiredface",
+    email,
+    password: "password123",
+  });
+  await expect(page).toHaveURL(`${BASE_URL}/`);
+
+  // Sliding window sanity (FR-011): the protected interaction just renewed
+  // the row to now + 30 days — no absolute cap on a continuously active user.
+  const future = await pool.query<{ expiresAt: Date }>(
+    'SELECT s."expiresAt" FROM sessions s JOIN users u ON u.id = s."userId" WHERE u.email = $1',
+    [email],
+  );
+  expect(future.rows).toHaveLength(1);
+  expect(new Date(future.rows[0].expiresAt).getTime()).toBeGreaterThan(
+    Date.now() + 29 * 24 * 60 * 60 * 1000,
+  );
+
+  // D12 expiry simulation: rewind the row in the dev DB — never time mocking.
+  await pool.query(
+    'UPDATE sessions SET "expiresAt" = NOW() - INTERVAL \'1 hour\' WHERE "userId" = (SELECT id FROM users WHERE email = $1)',
+    [email],
+  );
+  await page.goto("/");
+
+  await expect(page).toHaveURL(/\/sign-in\?next=%2F&reason=expired$/);
+  await expect(
+    page.getByText("Your session has expired. Please sign in again."),
+  ).toBeVisible();
+  await expect(page.getByText("Foundation is running")).toHaveCount(0);
+});
+
+test("multi-tab revocation: sign-out in one tab revokes the other on its next interaction", async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  const tabA = await context.newPage();
+  const email = `multitab-${runId}@test.local`;
+  await registerViaUi(tabA, {
+    name: "Tabby McTabface",
+    email,
+    password: "password123",
+  });
+  await expect(tabA).toHaveURL(`${BASE_URL}/`);
+
+  const tabB = await context.newPage();
+  await tabB.goto("/");
+  await expect(tabB.getByText("Tabby McTabface")).toBeVisible();
+
+  await tabA.getByRole("button", { name: "Sign out" }).click();
+  await expect(tabA).toHaveURL(/\/sign-in$/);
+
+  // Tab B's next protected interaction is revoked — ONE DELETE (D7).
+  await tabB.goto("/");
+  await expect(tabB).toHaveURL(/\/sign-in/);
+  await expect(tabB.getByText("Foundation is running")).toHaveCount(0);
+  await context.close();
+});

@@ -27,7 +27,13 @@ import { signInAction, type ActionResult } from "@/server/actions/auth-actions";
 
 const INITIAL_ACTION_STATE = null;
 
-export function SignInForm({ returnTo }: { returnTo?: string }) {
+export function SignInForm({
+  returnTo,
+  expiredNotice,
+}: {
+  returnTo?: string;
+  expiredNotice?: boolean;
+}) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -75,6 +81,14 @@ export function SignInForm({ returnTo }: { returnTo?: string }) {
           {/* The return destination rides along to the action; the US3 guard
               populates it from `?next=`. */}
           <input type="hidden" name="returnTo" value={returnTo ?? ""} />
+
+          {/* Graceful expiry (T036, FR-011): a friendly, non-technical
+              explanation when the guard redirected with reason=expired. */}
+          {expiredNotice && (
+            <p role="status" className="text-sm text-amber-600">
+              Your session has expired. Please sign in again.
+            </p>
+          )}
 
           <div className="flex flex-col gap-1.5">
             <label htmlFor="sign-in-email">Email</label>

@@ -9,15 +9,15 @@ import { SignInForm } from "@/features/auth/SignInForm";
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; reason?: string }>;
 }) {
-  const { next } = await searchParams;
+  const { next, reason } = await searchParams;
   return (
     <main
       id="main-content"
       className="flex flex-1 items-center justify-center p-6"
     >
-      <SignInForm returnTo={next} />
+      <SignInForm returnTo={next} expiredNotice={reason === "expired"} />
     </main>
   );
 }
