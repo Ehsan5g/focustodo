@@ -1,20 +1,29 @@
 import type { ReactNode } from "react";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 
 import { SignOutButton } from "@/features/auth/SignOutButton";
-import { requireSession } from "@/server/auth/session";
+import { resolveSession } from "@/server/auth/session";
 
 /**
- * Protected layout (F002 T028): the authenticated header shows the
- * signed-in user's name (server-derived via `requireSession()`, FR-012) and
- * the sign-out control. The AUTHORITATIVE redirect guard (missing/expired
- * session → `/sign-in`) arrives with US3/T032.
+ * Protected layout (F002 T028 + T032): the AUTHORITATIVE guard (D8, D9).
+ * The DB Session row decides — the middleware's coarse JWT check is advisory
+ * only. Missing/invalid session → `/sign-in?next=<current path>`; a session
+ * that existed but expired adds `&reason=expired` (T036's friendly notice).
+ * The header renders only after the guard passes.
  */
 export default async function ProtectedLayout({
   children,
 }: {
   children: ReactNode;
 }) {
-  const session = await requireSession();
+  const resolved = await resolveSession();
+  if (resolved.status !== "valid") {
+    const currentPath = (await headers()).get("x-pathname") ?? "/";
+    const expired = resolved.status === "expired" ? "&reason=expired" : "";
+    redirect(`/sign-in?next=${encodeURIComponent(currentPath)}${expired}`);
+  }
+  const session = resolved.session;
 
   return (
     <>

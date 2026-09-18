@@ -263,3 +263,96 @@ test("sign out returns to the sign-in view and revokes the session server-side",
   );
   expect(sessions.rows).toHaveLength(0);
 });
+
+test("signed-out direct open of / redirects to /sign-in?next=%2F with zero protected-content exposure", async ({
+  page,
+}) => {
+  await page.context().clearCookies();
+  await page.goto("/");
+
+  await expect(page).toHaveURL(`${BASE_URL}/sign-in?next=%2F`);
+  await expect(
+    page.getByRole("heading", { name: "Welcome back" }),
+  ).toBeVisible();
+  await expect(page.getByText("Foundation is running")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Add a task" })).toHaveCount(0);
+});
+
+test("sign-in via the protection redirect returns the user to the original destination", async ({
+  page,
+}) => {
+  const email = `return-${runId}@test.local`;
+  await registerViaUi(page, {
+    name: "Returny McReturnface",
+    email,
+    password: "password123",
+  });
+  await page.context().clearCookies();
+
+  await page.goto("/"); // → /sign-in?next=%2F
+  await expect(page).toHaveURL(`${BASE_URL}/sign-in?next=%2F`);
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill("password123");
+  await page.getByRole("button", { name: "Sign in" }).click();
+
+  await expect(page).toHaveURL(`${BASE_URL}/`);
+  await expect(page.getByText("Returny McReturnface")).toBeVisible();
+});
+
+test("crafted external next is honored AS-IS (accepted open-redirect posture, clarified FR-008)", async ({
+  page,
+}) => {
+  const email = `external-${runId}@test.local`;
+  await registerViaUi(page, {
+    name: "Externy McExternface",
+    email,
+    password: "password123",
+  });
+  await page.context().clearCookies();
+
+  await page.goto("/sign-in?next=https%3A%2F%2Fevil.example.test%2Fphish");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill("password123");
+  await page.getByRole("button", { name: "Sign in" }).click();
+
+  await expect(page).toHaveURL(/evil\.example\.test/);
+});
+
+test("signed-in users are bounced from /sign-in and /register to the protected area", async ({
+  page,
+}) => {
+  const email = `bounce-${runId}@test.local`;
+  await registerViaUi(page, {
+    name: "Bouncy McBounceface",
+    email,
+    password: "password123",
+  });
+  await expect(page).toHaveURL(`${BASE_URL}/`);
+
+  await page.goto("/sign-in");
+  await expect(page).toHaveURL(`${BASE_URL}/`);
+
+  await page.goto("/register");
+  await expect(page).toHaveURL(`${BASE_URL}/`);
+});
+
+test("browser Back after sign-out serves no protected content", async ({
+  page,
+}) => {
+  const email = `backbtn-${runId}@test.local`;
+  await registerViaUi(page, {
+    name: "Backy McBackface",
+    email,
+    password: "password123",
+  });
+  await expect(page).toHaveURL(`${BASE_URL}/`);
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page).toHaveURL(/\/sign-in$/);
+
+  await page.goBack();
+  // The authoritative guard re-runs on the back navigation — bounced back to
+  // the sign-in view, zero protected content from cache/history (S7).
+  await expect(page).toHaveURL(/\/sign-in/);
+  await expect(page.getByRole("button", { name: "Add a task" })).toHaveCount(0);
+});

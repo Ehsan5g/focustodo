@@ -112,14 +112,14 @@ Single full-stack Next.js project extending F001 in place (plan.md): `src/` + `t
 
 ### Tests for User Story 3 (write FIRST)
 
-- [ ] T030 [P] [US3] Write the failing E2E route-protection scenarios in `tests/e2e/auth.spec.ts`: signed-out direct open of `/` â†’ redirect to `/sign-in?next=%2F` with zero protected-content exposure; sign-in via that redirect â†’ returned to the original destination; crafted external `next` value â†’ honored as-is (accepted open-redirect posture, clarified FR-008); signed-in open of `/sign-in` and `/register` â†’ redirected to the protected area; browser Back after sign-out â†’ no protected content served (S5â€“S7; US3 scenarios 1â€“4; FR-007â€“FR-009)
+- [x] T030 [P] [US3] Write the failing E2E route-protection scenarios in `tests/e2e/auth.spec.ts`: signed-out direct open of `/` â†’ redirect to `/sign-in?next=%2F` with zero protected-content exposure; sign-in via that redirect â†’ returned to the original destination; crafted external `next` value â†’ honored as-is (accepted open-redirect posture, clarified FR-008); signed-in open of `/sign-in` and `/register` â†’ redirected to the protected area; browser Back after sign-out â†’ no protected content served (S5â€“S7; US3 scenarios 1â€“4; FR-007â€“FR-009)
 
 ### Implementation for User Story 3
 
-- [ ] T031 [US3] Create `middleware.ts` at repo root â€” the advisory edge layer (D8): cookie/JWT presence check via edge-safe `auth.config.ts` (NO Prisma/DB access), unauthenticated â†’ redirect to `/sign-in` appending `?next=<original path>`; matcher excludes `/api/health`, `/_next/*`, static assets, and the public `(auth)` routes
-- [ ] T032 [US3] Extend `src/app/(protected)/layout.tsx` (created in T028) with the AUTHORITATIVE guard (D8, D9): call `requireSession()` before rendering anything â€” missing/invalid session â†’ redirect to `/sign-in?next=<current path>`; a session that existed but expired (`expiresAt <= now`) â†’ same redirect plus `&reason=expired`; the header renders only after the guard passes
-- [ ] T033 [US3] Create `src/app/(auth)/layout.tsx` â€” the reverse guard: a valid session redirects to the protected area (FR-009; no `returnTo` handling here, per contracts/routes-and-guards.md)
-- [ ] T034 [US3] Validate US3 independently: T030 green incl. back-button and external-`next`; quickstart S5â€“S7 manual pass; gates green; commit
+- [x] T031 [US3] Create `middleware.ts` at repo root â€” the advisory edge layer (D8): cookie/JWT presence check via edge-safe `auth.config.ts` (NO Prisma/DB access), unauthenticated â†’ redirect to `/sign-in` appending `?next=<original path>`; matcher excludes `/api/health`, `/_next/*`, static assets, and the public `(auth)` routes
+- [x] T032 [US3] Extend `src/app/(protected)/layout.tsx` (created in T028) with the AUTHORITATIVE guard (D8, D9): call `requireSession()` before rendering anything â€” missing/invalid session â†’ redirect to `/sign-in?next=<current path>`; a session that existed but expired (`expiresAt <= now`) â†’ same redirect plus `&reason=expired`; the header renders only after the guard passes
+- [x] T033 [US3] Create `src/app/(auth)/layout.tsx` â€” the reverse guard: a valid session redirects to the protected area (FR-009; no `returnTo` handling here, per contracts/routes-and-guards.md)
+- [x] T034 [US3] Validate US3 independently: T030 green incl. back-button and external-`next`; quickstart S5â€“S7 manual pass; gates green; commit
 
 **Checkpoint**: The enforcement half is airtight â€” protected content unreachable signed-out, destinations preserved, auth views bounce signed-in users.
 

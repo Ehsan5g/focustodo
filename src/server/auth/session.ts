@@ -65,6 +65,53 @@ export async function deleteSession(sessionId: string): Promise<void> {
   await db.session.delete({ where: { id: sessionId } });
 }
 
+export type ResolvedSession =
+  | {
+      status: "valid";
+      session: Session & { user: { id: string; name: string; email: string } };
+    }
+  | { status: "expired"; session: null }
+  | { status: "missing"; session: null };
+
+/**
+ * Status-aware sibling of `requireSession` (T032): distinguishes a session
+ * that EXISTED but expired (`expiresAt <= now` → `status: "expired"`, stale
+ * row removed) from a plain missing one — the `(protected)` layout uses it
+ * to append `&reason=expired` for the graceful expiry experience (T036).
+ * Identity derivation and sliding renewal are identical to `requireSession`.
+ */
+export const resolveSession = cache(async (): Promise<ResolvedSession> => {
+  const { auth } = await import("./auth");
+  const jwtSession = await auth();
+  const sessionId = jwtSession?.sessionId;
+  if (!sessionId) return { status: "missing", session: null };
+
+  const db = await getDb();
+  const row = await db.session.findUnique({ where: { id: sessionId } });
+  if (!row) return { status: "missing", session: null };
+  if (row.expiresAt.getTime() <= Date.now()) {
+    // Expired: identical UX to sign-out — stale row removed opportunistically.
+    await db.session.delete({ where: { id: sessionId } });
+    return { status: "expired", session: null };
+  }
+
+  // Sliding renewal: ONE write via the shared service (research D2).
+  const renewed = await validateSession(sessionId);
+  if (!renewed || !jwtSession?.user)
+    return { status: "missing", session: null };
+  return {
+    status: "valid",
+    session: {
+      ...renewed,
+      user: {
+        id: jwtSession.user.id ?? "",
+        name: jwtSession.user.name ?? "",
+        email: jwtSession.user.email ?? "",
+      },
+    },
+  };
+});
+
 /**
  * Centralized server-side identity derivation (research D9): resolves the
  * JWT's opaque `sessionId` claim to a live Session row, renewing the sliding
