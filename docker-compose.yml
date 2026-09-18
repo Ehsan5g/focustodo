@@ -1,0 +1,25 @@
+# FocusTodo local development database (disposable).
+# Only the PostgreSQL 16 service is defined here; the application runs via `npm run dev`.
+# Credentials are sourced from .env when present (docker compose reads it automatically);
+# the defaults below match the documented DATABASE_URL example in .env.example.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: focustodo-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-focustodo}
+    volumes:
+      - focustodo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  focustodo_pgdata:
