@@ -3,6 +3,8 @@ import { PrismaClient } from "@/generated/prisma/client";
 import { env } from "@/lib/env";
 
 function createPrismaClient(): PrismaClient {
+  // Prisma 7 uses driver adapters (research.md D8); the validated URL is
+  // passed explicitly — nothing is read implicitly from the environment.
   return new PrismaClient({
     adapter: new PrismaPg({ connectionString: env.DATABASE_URL }),
   });

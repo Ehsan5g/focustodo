@@ -20,7 +20,7 @@ const config: runtime.GetPrismaClientConfig = {
   "clientVersion": "7.10.0",
   "engineVersion": "0edf323efd1d98336f3f0a68684b56f689b900d3",
   "activeProvider": "postgresql",
-  "inlineSchema": "// FocusTodo data model (data-model.md, feature 001-project-foundation).\n// Task model is OUT OF SCOPE here — defined by the tasks feature. This\n// schema only proves the toolchain end-to-end (US3).\n\ngenerator client {\n  provider = \"prisma-client\"\n  output   = \"../src/generated/prisma\"\n}\n\ndatasource db {\n  provider = \"postgresql\"\n}\n\n/// Connectivity proof table (US3): exactly one row, updated in place.\nmodel SystemMeta {\n  id        String   @id @default(\"singleton\")\n  key       String\n  value     String\n  updatedAt DateTime @updatedAt\n\n  @@map(\"system_meta\")\n}\n",
+  "inlineSchema": "// FocusTodo data model (data-model.md, feature 001-project-foundation).\n// Deliberately EMPTY: the task model is defined by the tasks feature.\n// Migration history starts empty; schema management is migration-based\n// (db:migrate / db:deploy), never db push (D8).\n//\n// Deviation note (tasks.md T023 vs Prisma 7): the spec text assumes the\n// Prisma ≤6 idiom (generator prisma-client-js + `url = env(\"DATABASE_URL\")`).\n// Prisma 7.10 (pinned per research.md D8) removed datasource `url` from\n// schema files — the connection string lives in prisma.config.ts for the CLI\n// and a driver adapter feeds PrismaClient (see src/server/db.ts).\n\ngenerator client {\n  provider = \"prisma-client\"\n  output   = \"../src/generated/prisma\"\n}\n\ndatasource db {\n  provider = \"postgresql\"\n}\n",
   "runtimeDataModel": {
     "models": {},
     "enums": {},
@@ -32,10 +32,10 @@ const config: runtime.GetPrismaClientConfig = {
   }
 }
 
-config.runtimeDataModel = JSON.parse("{\"models\":{\"SystemMeta\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"key\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"value\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"updatedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"}],\"dbName\":\"system_meta\",\"schema\":null}},\"enums\":{},\"types\":{}}")
+config.runtimeDataModel = JSON.parse("{\"models\":{},\"enums\":{},\"types\":{}}")
 config.parameterizationSchema = {
-  strings: JSON.parse("[\"where\",\"SystemMeta.findUnique\",\"SystemMeta.findUniqueOrThrow\",\"orderBy\",\"cursor\",\"SystemMeta.findFirst\",\"SystemMeta.findFirstOrThrow\",\"SystemMeta.findMany\",\"data\",\"SystemMeta.createOne\",\"SystemMeta.createMany\",\"SystemMeta.createManyAndReturn\",\"SystemMeta.updateOne\",\"SystemMeta.updateMany\",\"SystemMeta.updateManyAndReturn\",\"create\",\"update\",\"SystemMeta.upsertOne\",\"SystemMeta.deleteOne\",\"SystemMeta.deleteMany\",\"having\",\"_count\",\"_min\",\"_max\",\"SystemMeta.groupBy\",\"SystemMeta.aggregate\",\"AND\",\"OR\",\"NOT\",\"id\",\"key\",\"value\",\"updatedAt\",\"equals\",\"in\",\"notIn\",\"lt\",\"lte\",\"gt\",\"gte\",\"not\",\"contains\",\"startsWith\",\"endsWith\",\"set\"]"),
-  graph: "KQkQBxoAACIAMBsAAAQAEBwAACIAMB0BAAAAAR4BACMAIR8BACMAISBAACQAIQEAAAABACABAAAAAQAgBxoAACIAMBsAAAQAEBwAACIAMB0BACMAIR4BACMAIR8BACMAISBAACQAIQADAAAABAAgAwAABQAwBAAAAQAgAwAAAAQAIAMAAAUAMAQAAAEAIAMAAAAEACADAAAFADAEAAABACAEHQEAAAABHgEAAAABHwEAAAABIEAAAAABAQgAAAkAIAQdAQAAAAEeAQAAAAEfAQAAAAEgQAAAAAEBCAAACwAwAQgAAAsAMAQdAQAoACEeAQAoACEfAQAoACEgQAApACECAAAAAQAgCAAADgAgBB0BACgAIR4BACgAIR8BACgAISBAACkAIQIAAAAEACAIAAAQACACAAAABAAgCAAAEAAgAwAAAAEAIA8AAAkAIBAAAA4AIAEAAAABACABAAAABAAgAxUAACUAIBYAACcAIBcAACYAIAcaAAAaADAbAAAXABAcAAAaADAdAQAbACEeAQAbACEfAQAbACEgQAAcACEDAAAABAAgAwAAFgAwFAAAFwAgAwAAAAQAIAMAAAUAMAQAAAEAIAcaAAAaADAbAAAXABAcAAAaADAdAQAbACEeAQAbACEfAQAbACEgQAAcACEOFQAAHgAgFgAAIQAgFwAAIQAgIQEAAAABIgEAAAAEIwEAAAAEJAEAAAABJQEAAAABJgEAAAABJwEAAAABKAEAIAAhKQEAAAABKgEAAAABKwEAAAABCxUAAB4AIBYAAB8AIBcAAB8AICFAAAAAASJAAAAABCNAAAAABCRAAAAAASVAAAAAASZAAAAAASdAAAAAAShAAB0AIQsVAAAeACAWAAAfACAXAAAfACAhQAAAAAEiQAAAAAQjQAAAAAQkQAAAAAElQAAAAAEmQAAAAAEnQAAAAAEoQAAdACEIIQIAAAABIgIAAAAEIwIAAAAEJAIAAAABJQIAAAABJgIAAAABJwIAAAABKAIAHgAhCCFAAAAAASJAAAAABCNAAAAABCRAAAAAASVAAAAAASZAAAAAASdAAAAAAShAAB8AIQ4VAAAeACAWAAAhACAXAAAhACAhAQAAAAEiAQAAAAQjAQAAAAQkAQAAAAElAQAAAAEmAQAAAAEnAQAAAAEoAQAgACEpAQAAAAEqAQAAAAErAQAAAAELIQEAAAABIgEAAAAEIwEAAAAEJAEAAAABJQEAAAABJgEAAAABJwEAAAABKAEAIQAhKQEAAAABKgEAAAABKwEAAAABBxoAACIAMBsAAAQAEBwAACIAMB0BACMAIR4BACMAIR8BACMAISBAACQAIQshAQAAAAEiAQAAAAQjAQAAAAQkAQAAAAElAQAAAAEmAQAAAAEnAQAAAAEoAQAhACEpAQAAAAEqAQAAAAErAQAAAAEIIUAAAAABIkAAAAAEI0AAAAAEJEAAAAABJUAAAAABJkAAAAABJ0AAAAABKEAAHwAhAAAAASwBAAAAAQEsQAAAAAEAAAAAAxUABhYABxcACAAAAAMVAAYWAAcXAAgBAgECAwEFBgEGBwEHCAEJCgEKDAILDQMMDwENEQIOEgQREwESFAETFQIYGAUZGQk"
+  strings: JSON.parse("[]"),
+  graph: "AAAA"
 }
 
 async function decodeBase64AsWasm(wasmBase64: string): Promise<WebAssembly.Module> {
@@ -70,8 +70,8 @@ export interface PrismaClientConstructor {
    * const prisma = new PrismaClient({
    *   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL })
    * })
-   * // Fetch zero or more SystemMetas
-   * const systemMetas = await prisma.systemMeta.findMany()
+   * // Fetch zero or more Users
+   * const users = await prisma.user.findMany()
    * ```
    * 
    * Read more in our [docs](https://pris.ly/d/client).
@@ -94,8 +94,8 @@ export interface PrismaClientConstructor {
  * const prisma = new PrismaClient({
  *   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL })
  * })
- * // Fetch zero or more SystemMetas
- * const systemMetas = await prisma.systemMeta.findMany()
+ * // Fetch zero or more Users
+ * const users = await prisma.user.findMany()
  * ```
  * 
  * Read more in our [docs](https://pris.ly/d/client).
@@ -188,15 +188,7 @@ export interface PrismaClient<
     extArgs: ExtArgs
   }>>
 
-      /**
-   * `prisma.systemMeta`: Exposes CRUD operations for the **SystemMeta** model.
-    * Example usage:
-    * ```ts
-    * // Fetch zero or more SystemMetas
-    * const systemMetas = await prisma.systemMeta.findMany()
-    * ```
-    */
-  get systemMeta(): Prisma.SystemMetaDelegate<ExtArgs, { omit: OmitOpts }>;
+    
 }
 
 export function getPrismaClientClass(): PrismaClientConstructor {

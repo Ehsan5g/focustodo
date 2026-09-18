@@ -8,5 +8,4 @@
  *
  * 🟢 You can import this file directly.
  */
-export type * from './models/SystemMeta'
 export type * from './commonInputTypes'

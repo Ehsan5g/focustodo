@@ -17,8 +17,4 @@ import * as Prisma from './internal/prismaNamespaceBrowser'
 export { Prisma }
 export * as $Enums from './enums'
 export * from './enums';
-/**
- * Model SystemMeta
- * Connectivity proof table (US3): exactly one row, updated in place.
- */
-export type SystemMeta = Prisma.SystemMetaModel
+

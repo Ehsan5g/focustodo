@@ -10,3 +10,9 @@ package-lock.json
 npm-shrinkwrap.json
 yarn.lock
 pnpm-lock.yaml
+
+# Spec Kit / agent tooling artifacts — keep upstream formatting untouched
+.specify/
+.clinerules/
+specs/
+AI_ENGINEERING.md
