@@ -1,4 +1,4 @@
-﻿import { Button } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -9,10 +9,12 @@ import {
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 
 /**
- * Placeholder page (US1/T021): proves the app shell + design system run â€”
- * replaced by future task features.
+ * Protected application shell (F002 T028): the F001 placeholder content
+ * becomes the protected area's home page (spec Assumptions). Tasks will
+ * appear in upcoming features; the route is served from the `(protected)`
+ * group whose layout carries the authenticated header.
  */
-export default function Home() {
+export default function ProtectedHome() {
   return (
     <main
       id="main-content"
@@ -32,7 +34,7 @@ export default function Home() {
           <Button>Add a task</Button>
           <Button variant="outline">View completed</Button>
           <Button variant="ghost" size="icon" aria-label="Settings">
-            âš™
+            ⚙
           </Button>
         </CardContent>
       </Card>

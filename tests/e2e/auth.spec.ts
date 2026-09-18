@@ -188,3 +188,78 @@ test("double submit creates at most one account", async ({ page }) => {
   }
   expect(await countUsers(email)).toBe(1);
 });
+
+test("sign-in with correct credentials reaches the protected area", async ({
+  page,
+}) => {
+  const email = `signin-${runId}@test.local`;
+  await registerViaUi(page, {
+    name: "Signy McSignface",
+    email,
+    password: "password123",
+  });
+  await expect(page).toHaveURL(`${BASE_URL}/`);
+
+  // Become anonymous, then sign in through the sign-in view.
+  await page.context().clearCookies();
+  await page.goto("/sign-in");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill("password123");
+  await page.getByRole("button", { name: "Sign in" }).click();
+
+  await expect(page).toHaveURL(`${BASE_URL}/`);
+  await expect(page.getByText("Signy McSignface")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+});
+
+test("wrong password and unknown email show the SAME generic rejection", async ({
+  page,
+}) => {
+  const email = `wrongpw-${runId}@test.local`;
+  await registerViaUi(page, {
+    name: "Wrong Password",
+    email,
+    password: "password123",
+  });
+  await expect(page).toHaveURL(`${BASE_URL}/`);
+  await page.context().clearCookies();
+
+  await page.goto("/sign-in");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill("definitely-wrong");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByText("Invalid email or password")).toBeVisible();
+
+  // Unknown email: identical message — no account enumeration (FR-005).
+  await page.getByLabel("Email").fill(`nobody-${runId}@nowhere.test`);
+  await page.getByLabel("Password").fill("definitely-wrong");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByText("Invalid email or password")).toBeVisible();
+  await expect(page).toHaveURL(/\/sign-in$/);
+});
+
+test("sign out returns to the sign-in view and revokes the session server-side", async ({
+  page,
+}) => {
+  const email = `signout-${runId}@test.local`;
+  await registerViaUi(page, {
+    name: "Outy McOutface",
+    email,
+    password: "password123",
+  });
+  await expect(page).toHaveURL(`${BASE_URL}/`);
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+
+  await expect(page).toHaveURL(/\/sign-in$/);
+  const cookies = await page.context().cookies();
+  expect(cookies.some((cookie) => cookie.name.includes("session-token"))).toBe(
+    false,
+  );
+
+  const sessions = await pool.query(
+    'SELECT s.id FROM sessions s JOIN users u ON u.id = s."userId" WHERE u.email = $1',
+    [email],
+  );
+  expect(sessions.rows).toHaveLength(0);
+});

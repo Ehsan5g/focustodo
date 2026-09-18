@@ -3,7 +3,8 @@
 import { AuthError } from "next-auth";
 
 import { hashPassword } from "@/server/auth/password";
-import { signIn, signOut } from "@/server/auth/auth";
+import { signIn, signOut, auth } from "@/server/auth/auth";
+import { deleteSession } from "@/server/auth/session";
 import { db } from "@/server/db";
 import { registerSchema, signInSchema } from "@/validation/auth-schema";
 
@@ -159,20 +160,32 @@ export async function signInAction(
     throw error;
   }
 
-  // (5) Return — the protected area; `next` destination honoring arrives
-  // with US3's redirect guard.
-  return { status: "success", redirectTo: "/" };
+  // (5) Return — the `returnTo` destination honored AS-IS, including
+  // external URLs (clarified FR-008 — accepted open-redirect posture);
+  // default: the protected area.
+  const rawReturnTo = formData.get("returnTo");
+  const returnTo =
+    typeof rawReturnTo === "string" && rawReturnTo.length > 0
+      ? rawReturnTo
+      : "/";
+  return { status: "success", redirectTo: returnTo };
 }
 
 export async function signOutAction(): Promise<ActionResult> {
   // (1) Validate — no input.
-  // (2) Authenticate — resolve current session, if any (signOut is a no-op
-  // without one).
+  // (2) Authenticate — resolve the current session claim, if any.
   // (3) Authorize — signing out one's own session is always allowed.
+  const jwtSession = await auth();
+  const sessionId = jwtSession?.sessionId;
 
-  // (4) Execute — the JWT cookie is cleared here; the DB Session row is
-  // deleted by the sign-out flow wired to the session service (US2/T026).
-  await signOut();
+  // (4) Execute — the authoritative revocation is ONE DELETE of the Session
+  // row (multi-tab revocation = one DELETE, D7); the JWT cookie is cleared
+  // by Auth.js signOut. `redirect: false` keeps control in THIS action —
+  // the default would throw a redirect to the current page.
+  if (sessionId) {
+    await deleteSession(sessionId);
+  }
+  await signOut({ redirect: false });
 
   // (5) Return — the button navigates to the sign-in view.
   return { status: "success", redirectTo: "/sign-in" };
