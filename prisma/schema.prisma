@@ -1,0 +1,22 @@
+// FocusTodo data model (data-model.md, feature 001-project-foundation).
+// Task model is OUT OF SCOPE here — defined by the tasks feature. This
+// schema only proves the toolchain end-to-end (US3).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Connectivity proof table (US3): exactly one row, updated in place.
+model SystemMeta {
+  id    String   @id @default("singleton")
+  key   String
+  value String
+  updatedAt DateTime @updatedAt
+
+  @@map("system_meta")
+}

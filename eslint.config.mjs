@@ -23,6 +23,13 @@ const eslintConfig = defineConfig([
     },
   },
   {
+    // CLI scripts (seed) legitimately print to stdout/stderr.
+    files: ["prisma/**"],
+    rules: {
+      "no-console": "off",
+    },
+  },
+  {
     // Tool configuration files may use console if ever needed.
     files: ["**/*.config.{mjs,ts}", "eslint.config.mjs"],
     rules: {
