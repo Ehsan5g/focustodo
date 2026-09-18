@@ -1,7 +1,7 @@
-// FocusTodo data model (data-model.md, feature 001-project-foundation).
-// Deliberately EMPTY: the task model is defined by the tasks feature.
-// Migration history starts empty; schema management is migration-based
-// (db:migrate / db:deploy), never db push (D8).
+// FocusTodo data model.
+// Feature 001-project-foundation: empty migration-based baseline.
+// Feature 002-user-auth (data-model.md): first business models User + Session.
+// Schema management is migration-based (db:migrate / db:deploy), never db push (D8).
 //
 // Deviation note (tasks.md T023 vs Prisma 7): the spec text assumes the
 // Prisma ≤6 idiom (generator prisma-client-js + `url = env("DATABASE_URL")`).
@@ -16,4 +16,40 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+/// A person with an account (data-model.md User). Owns all future private
+/// data; `email` is stored normalized (trimmed + lowercased at input) and
+/// unique per constitution II. `passwordHash` is scrypt-encoded
+/// (`scrypt$N$r$p$<salt-b64>$<hash-b64>`) and never selected into any
+/// client payload (research D11).
+model User {
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+
+  // Prisma 7's new client generator keeps model names as-is; map to the
+  // conventional snake_case table names (matches F001's health_check style).
+  @@map("users")
+}
+
+/// A signed-in period for exactly one user (data-model.md Session).
+/// The opaque `id` is the bearer claim carried inside the Auth.js JWT
+/// cookie; `expiresAt` always equals `lastProtectedInteraction + 30 days`
+/// (sliding window, clarified FR-011). Deleting the row revokes the
+/// session everywhere instantly (multi-tab sign-out, research D2).
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
 }

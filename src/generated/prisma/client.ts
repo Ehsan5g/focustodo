@@ -41,4 +41,21 @@ export const PrismaClient = $Class.getPrismaClientClass()
 export type PrismaClient<LogOpts extends Prisma.LogLevel = never, OmitOpts extends Prisma.PrismaClientOptions["omit"] = Prisma.PrismaClientOptions["omit"], ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = $Class.PrismaClient<LogOpts, OmitOpts, ExtArgs>
 export { Prisma }
 
-
+/**
+ * Model User
+ * A person with an account (data-model.md User). Owns all future private
+ * data; `email` is stored normalized (trimmed + lowercased at input) and
+ * unique per constitution II. `passwordHash` is scrypt-encoded
+ * (`scrypt$N$r$p$<salt-b64>$<hash-b64>`) and never selected into any
+ * client payload (research D11).
+ */
+export type User = Prisma.UserModel
+/**
+ * Model Session
+ * A signed-in period for exactly one user (data-model.md Session).
+ * The opaque `id` is the bearer claim carried inside the Auth.js JWT
+ * cookie; `expiresAt` always equals `lastProtectedInteraction + 30 days`
+ * (sliding window, clarified FR-011). Deleting the row revokes the
+ * session everywhere instantly (multi-tab sign-out, research D2).
+ */
+export type Session = Prisma.SessionModel
