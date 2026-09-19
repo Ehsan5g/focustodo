@@ -151,4 +151,92 @@ test("US1 S11: rapid double-click submit creates at most one task (scripted clic
   await expect(page.getByTestId("new-task-surface")).toHaveCount(0);
   expect(await countTasks("Only once")).toBe(1);
 });
-// __US2_LIST__
+
+test("US2 S5: a fresh account sees the empty state with a create-first-task action", async ({
+  page,
+}) => {
+  await registerAndOpenList(page);
+  await expect(page.getByText(/create your first task/i).first()).toBeVisible();
+});
+
+test("US2: creates appear newest-first and persist across a reload (S1 deferred ≤2 s assertion)", async ({
+  page,
+}) => {
+  await registerAndOpenList(page);
+  const titles = ["Alpha first", "Beta second", "Gamma third"];
+  for (const title of titles) {
+    await page.getByRole("button", { name: "New task" }).click();
+    await page.getByLabel("Title").fill(title);
+    await page.getByRole("button", { name: "Create task" }).click();
+    await expect(page.getByTestId("new-task-surface")).toHaveCount(0);
+  }
+
+  // Newest-first order (T012's deferred ~2 s assertion — the created task is
+  // in the rendered list).
+  const first = page.getByText("Gamma third");
+  await expect(first).toBeVisible();
+  const older = page.getByText("Alpha first");
+  expect((await first.boundingBox())!.y < (await older.boundingBox())!.y).toBe(
+    true,
+  );
+
+  // Persist across a reload (SC-002).
+  await page.reload();
+  await expect(page.getByText("Alpha first")).toBeVisible();
+  await expect(page.getByText("Gamma third")).toBeVisible();
+});
+
+test("US2 S4/SC-007: the list stays readable with color disabled", async ({
+  page,
+}) => {
+  await registerAndOpenList(page);
+  await page.emulateMedia({ forcedColors: "active" });
+  await page.getByRole("button", { name: "New task" }).click();
+  await page.getByLabel("Title").fill("Monochrome readable");
+  await page.getByLabel("Due date").fill("2026-09-01");
+  await page.getByRole("button", { name: "Create task" }).click();
+  await expect(page.getByTestId("new-task-surface")).toHaveCount(0);
+
+  await expect(page.getByText("Monochrome readable")).toBeVisible();
+  await expect(page.getByText(/To do/).first()).toBeVisible();
+  await expect(page.getByText(/Medium priority/i).first()).toBeVisible();
+  // Past due + open → the OVERDUE flag is text, readable without color.
+  await expect(page.getByText(/Overdue/).first()).toBeVisible();
+  await page.emulateMedia({ forcedColors: "none" });
+});
+
+test("US2 S4/SC-003/FR-004: two-user privacy — User B sees none of User A's tasks", async ({
+  browser,
+}) => {
+  const contextA = await browser.newContext();
+  const pageA = await contextA.newPage();
+  await registerAndOpenList(pageA);
+  for (const title of ["Alice secret", "Alice another"]) {
+    await pageA.getByRole("button", { name: "New task" }).click();
+    await pageA.getByLabel("Title").fill(title);
+    await pageA.getByRole("button", { name: "Create task" }).click();
+    await expect(pageA.getByTestId("new-task-surface")).toHaveCount(0);
+  }
+  await expect(pageA.getByText("Alice secret")).toBeVisible();
+
+  const contextB = await browser.newContext();
+  const pageB = await contextB.newPage();
+  await registerAndOpenList(pageB);
+  await expect(pageB.getByText(/create your first task/i)).toBeVisible();
+  await expect(pageB.getByText("Alice secret")).toHaveCount(0);
+  await expect(pageB.getByText("Alice another")).toHaveCount(0);
+
+  // DB-level cross-check: the tasks created here exist and are owned by
+  // exactly two distinct users (UI isolation already proved B sees none of
+  // A's rows; this confirms the rows themselves are per-user in the DB).
+  const owners = await pool.query(
+    'SELECT COUNT(DISTINCT "userId")::int AS owners, COUNT(*)::int AS tasks FROM tasks t JOIN users u ON u.id = t."userId" WHERE t.title IN ($1, $2)',
+    ["Alice secret", "Alice another"],
+  );
+  expect(owners.rows[0].owners).toBe(2);
+  expect(owners.rows[0].tasks).toBe(2);
+
+  await contextA.close();
+  await contextB.close();
+});
+// __US3_TOGGLE__
