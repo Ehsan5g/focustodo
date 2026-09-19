@@ -35,3 +35,14 @@ export type User = Prisma.UserModel
  * session everywhere instantly (multi-tab sign-out, research D2).
  */
 export type Session = Prisma.SessionModel
+/**
+ * Model Task
+ * A personal to-do item owned by exactly one user (data-model.md Task,
+ * feature 003-task-management). `dueDate` is a PostgreSQL DATE — a calendar
+ * day with no time-of-day (research D1). `status` is forward-only after
+ * creation (TODO → IN_PROGRESS → COMPLETED; COMPLETED → TODO reopens),
+ * enforced by the shared pure `validateTransition` rule (research D2).
+ * `categoryId` is a reserved scalar — the relation materializes additively
+ * with the categories feature; NO relation/FK yet (research D11).
+ */
+export type Task = Prisma.TaskModel

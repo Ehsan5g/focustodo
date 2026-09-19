@@ -23,6 +23,14 @@ export default defineConfig({
           setupFiles: ["tests/setup.ts"],
         },
       },
+      {
+        resolve: { alias },
+        test: {
+          name: "integration",
+          environment: "node",
+          include: ["tests/integration/**/*.test.ts"],
+        },
+      },
     ],
   },
 });
