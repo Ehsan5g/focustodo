@@ -1,20 +1,20 @@
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { requireSession } from "@/server/auth/session";
+import { listTasks } from "@/server/tasks/service";
+import { NewTaskSurface } from "@/features/tasks/NewTaskSurface";
 
 /**
- * Protected application shell (F002 T028): the F001 placeholder content
- * becomes the protected area's home page (spec Assumptions). Tasks will
- * appear in upcoming features; the route is served from the `(protected)`
- * group whose layout carries the authenticated header.
+ * Protected application shell (F002 T028; F003 T015 interim): the placeholder
+ * shell gains the real "New task" control and the adaptive create surface.
+ * The full task list view lands with US2 (T018/T019) — this interim state
+ * already lets a signed-in user create tasks end-to-end (US1).
  */
-export default function ProtectedHome() {
+export default async function ProtectedHome() {
+  const session = await requireSession();
+  // The (protected) layout guarantees a session; this narrows for the query.
+  const tasks = session ? await listTasks(session.user.id) : [];
+
   return (
     <main
       id="main-content"
@@ -23,21 +23,15 @@ export default function ProtectedHome() {
       <div className="absolute top-4 right-4">
         <ThemeToggle />
       </div>
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>FocusTodo</CardTitle>
-          <CardDescription>
-            Foundation is running. Tasks will appear in upcoming features.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-3">
-          <Button>Add a task</Button>
-          <Button variant="outline">View completed</Button>
-          <Button variant="ghost" size="icon" aria-label="Settings">
-            ⚙
-          </Button>
-        </CardContent>
-      </Card>
+      <div className="absolute top-4 left-4">
+        <NewTaskSurface />
+      </div>
+      <Button>Add a task</Button>
+      <p className="text-muted-foreground text-sm" suppressHydrationWarning>
+        {tasks.length === 0
+          ? "Foundation is running. Your tasks will appear here."
+          : `${tasks.length} task${tasks.length === 1 ? "" : "s"} saved.`}
+      </p>
     </main>
   );
 }

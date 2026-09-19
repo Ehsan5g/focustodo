@@ -13,7 +13,9 @@ import type { TaskPriority, TaskStatus } from "@/generated/prisma/client";
  * - description: optional, ≤1000 characters; an empty string normalizes to
  *   `null` so "clearing" and "never set" are the same stored state (FR-007)
  * - dueDate: strict `YYYY-MM-DD` calendar day (research D1) — normalized to a
- *   UTC-midnight Date; impossible days like 2026-02-30 are rejected
+ *   UTC-midnight Date; impossible days like 2026-02-30 are rejected; an empty
+ *   string (a cleared `<input type="date">`) normalizes to `null` like
+ *   description (FR-007)
  * - priority: enum, default MEDIUM (FR-003)
  * - status: default TODO; creation accepts any valid initial status
  *   (clarified FR-001). Transitions after creation are governed by the pure
@@ -75,7 +77,10 @@ const baseTaskFields = {
     .transform((value) => (value.length === 0 ? null : value))
     .nullish()
     .transform((value) => value ?? null),
-  dueDate: calendarDaySchema.nullish().transform((value) => value ?? null),
+  dueDate: z.preprocess(
+    (value) => (value === "" || value == null ? null : value),
+    z.union([calendarDaySchema, z.null()]),
+  ),
   priority: taskPrioritySchema.default("MEDIUM"),
   status: taskStatusSchema.default("TODO"),
 };

@@ -97,6 +97,12 @@ describe("task-schema (research D1/D2 — shared Zod source of truth)", () => {
       if (result.success) expect(result.data.dueDate).toBeNull();
     });
 
+    it("normalizes an empty string (a cleared date input) to null", () => {
+      const result = createTaskSchema.safeParse(baseFields({ dueDate: "" }));
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.dueDate).toBeNull();
+    });
+
     it("normalizes YYYY-MM-DD to a UTC-midnight Date", () => {
       const result = createTaskSchema.safeParse(
         baseFields({ dueDate: "2026-03-15" }),

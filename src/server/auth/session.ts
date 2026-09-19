@@ -104,7 +104,9 @@ export const resolveSession = cache(async (): Promise<ResolvedSession> => {
     session: {
       ...renewed,
       user: {
-        id: jwtSession.user.id ?? "",
+        // The DB Session row's userId is the authoritative identity — the JWT
+        // only carries the opaque sessionId claim (see requireSession).
+        id: row.userId,
         name: jwtSession.user.name ?? "",
         email: jwtSession.user.email ?? "",
       },
@@ -134,7 +136,10 @@ export const requireSession = cache(
     return {
       ...row,
       user: {
-        id: jwtSession.user.id ?? "",
+        // The DB Session row's userId is the authoritative identity (the JWT
+        // only carries the opaque sessionId claim) — F003 actions and pages
+        // scope every task query by this id.
+        id: row.userId,
         name: jwtSession.user.name ?? "",
         email: jwtSession.user.email ?? "",
       },
