@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Next.js build output
+.next/
+out/
+build/
+
+# Testing
+coverage/
+playwright-report/
+test-results/
+
+# Environment and secrets
+.env*
+!.env.example
+
+# Git and tooling
+.git/
+.idea/
+.vscode/
+.clinerules/
+.specify/
+specs/
+*.log
+tsconfig.tsbuildinfo
