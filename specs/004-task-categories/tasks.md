@@ -104,7 +104,7 @@ Single full-stack Next.js project extending F001+F002+F003 in place (plan.md): `
 
 - [X] T025 [US3] Implement the `updateCategory` server action in `src/server/actions/category-actions.ts` per contracts/server-actions.md â€” five steps in order: (1) validate via `updateCategorySchema` + `categoryIdSchema`; (2) `requireSession()`; (3) authorize â€” load scoped `where: { id: categoryId, userId }`; a foreign or unknown id is indistinguishable (D4); (4) execute â€” identical name after trim â†’ no-op success (D8); else write `name` + `nameKey` once, P2002 against a *different* category â†’ the duplicate field error with the old name untouched; (5) return `CategoryActionResult` + revalidate `/categories` and `/` â€” labels propagate by reference, zero task writes (D5) (depends on T007)
 - [X] T026 [US3] Wire rename into `src/features/categories/CategoryList.tsx` (a row control opening the pre-filled adaptive CategoryForm) making T024 pass (depends on T024, T025)
-- [ ] T027 [US3] Validate US3 independently: T023/T024 green; quickstart S8â€“S9 + S14 manual pass; gates green; commit
+- [X] T027 [US3] Validate US3 independently: T023/T024 green; quickstart S8â€“S9 + S14 manual pass; gates green; commit
 
 **Checkpoint**: Organization stays accurate â€” one rename refreshes every surface through reference, never by rewriting tasks.
 
@@ -123,7 +123,7 @@ Single full-stack Next.js project extending F001+F002+F003 in place (plan.md): `
 
 - [X] T030 [US4] Implement the `deleteCategory` server action in `src/server/actions/category-actions.ts` per contracts/server-actions.md â€” five steps in order: (1) validate via `categoryIdSchema`; (2) `requireSession()`; (3) authorize â€” ownership IS the deletion predicate: scoped `deleteMany({ where: { id, userId } })` (F003 D10 pattern); (4) execute â€” count 0 â†’ stop: foreign, already-deleted, and unknown ids are indistinguishable; otherwise the row is removed and `SetNull` nulls ONLY the task links â€” tasks keep every other field (D2, FR-011); (5) return `{ status: "success" }` Â· `failure("This category no longer exists. Refresh to see your current list.")` + revalidate `/categories` and `/` (depends on T007)
 - [X] T031 [US4] Create `src/features/categories/DeleteCategoryDialog.tsx` (F003's copy-in AlertDialog, D7) and wire the delete control into CategoryList making T028 pass; rapid repeat clicks must not double-open the dialog or double-submit (F003's D8 pattern) (depends on T028, T030)
-- [ ] T032 [US4] Validate US4 independently: T028/T029 green; quickstart S10â€“S11 + S13 manual pass; gates green; commit
+- [X] T032 [US4] Validate US4 independently: T028/T029 green; quickstart S10â€“S11 + S13 manual pass; gates green; commit
 
 **Checkpoint**: Housekeeping is safe â€” deletion is confirmed, permanent, and provably never touches a task's data beyond nulling the link.
 

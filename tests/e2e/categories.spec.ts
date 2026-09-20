@@ -44,13 +44,16 @@ async function openCategories(page: Page) {
 
 async function openCreateSurface(page: Page) {
   await page.getByTestId("new-category-button").click();
-  await expect(page.getByLabel("Category name")).toBeVisible();
+  // exact: true — row buttons carry aria-labels like "Rename <name>"; a
+  // non-exact label lookup would substring-match a category NAMED
+  // "…category name…" (US1 S4 learned this the hard way).
+  await expect(page.getByLabel("Category name", { exact: true })).toBeVisible();
 }
 
 /** Create a category through the UI and wait for the surface to close. */
 async function createCategoryViaUi(page: Page, name: string) {
   await openCreateSurface(page);
-  await page.getByLabel("Category name").fill(name);
+  await page.getByLabel("Category name", { exact: true }).fill(name);
   await page.getByRole("button", { name: "Create category" }).click();
   await expect(page.getByTestId("new-category-surface")).toHaveCount(0);
 }
@@ -88,7 +91,7 @@ test("US1 S2: “work” while “Work” exists is rejected near the field with
   await createCategoryViaUi(page, "Work");
 
   await openCreateSurface(page);
-  await page.getByLabel("Category name").fill("work");
+  await page.getByLabel("Category name", { exact: true }).fill("work");
   await page.getByRole("button", { name: "Create category" }).click();
   await expect(
     page.getByText("You already have a category with this name."),
@@ -106,7 +109,7 @@ test("US1 S3: spaces-only name → inline required error, nothing created", asyn
   const email = await registerUser(page);
   await openCategories(page);
   await openCreateSurface(page);
-  await page.getByLabel("Category name").fill("   ");
+  await page.getByLabel("Category name", { exact: true }).fill("   ");
   await expect(page.getByText("Category name is required")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("new-category-surface")).toHaveCount(0);
@@ -125,7 +128,7 @@ test("US1 S4: a 60-character name is accepted; 61 characters is rejected", async
   expect(await countCategories(email, longName.toLowerCase())).toBe(1);
 
   await openCreateSurface(page);
-  await page.getByLabel("Category name").fill(`${longName}y`);
+  await page.getByLabel("Category name", { exact: true }).fill(`${longName}y`);
   await page.getByRole("button", { name: "Create category" }).click();
   await expect(
     page.getByText("Category name must be at most 60 characters"),
@@ -142,7 +145,7 @@ test("US1 S12: the first visit shows the empty state with its next action", asyn
   await openCategories(page);
   await expect(page.getByTestId("category-empty-state")).toBeVisible();
   await page.getByTestId("empty-state-create-category").click();
-  await expect(page.getByLabel("Category name")).toBeVisible();
+  await expect(page.getByLabel("Category name", { exact: true })).toBeVisible();
 });
 
 // ——— F004 US2 (T017): per-task category assignment ———
@@ -478,7 +481,7 @@ test("US3 D8: renaming to the identical name is a no-op success", async ({
   await createCategoryViaUi(page, "Stable");
 
   const surface = await openRenameSurface(page, "Stable");
-  await page.getByLabel("Category name").fill("Stable");
+  await page.getByLabel("Category name", { exact: true }).fill("Stable");
   await page.getByRole("button", { name: "Save changes" }).click();
 
   // Success closes the surface; the name is unchanged; still one row.
@@ -507,7 +510,7 @@ test("US3 S14: a task edit saved after a rename in another tab shows the CURRENT
   const pageB = await context.newPage();
   await pageB.goto(`${BASE_URL}/categories`);
   const surfaceB = await openRenameSurface(pageB, "Work");
-  await pageB.getByLabel("Category name").fill("Deep Work");
+  await pageB.getByLabel("Category name", { exact: true }).fill("Deep Work");
   await pageB.getByRole("button", { name: "Save changes" }).click();
   await expect(surfaceB).toHaveCount(0);
 
@@ -543,6 +546,9 @@ test("US4 S11/SC-004: confirming the delete removes the category from the list A
   const email = await registerUser(page);
   await openCategories(page);
   await createCategoryViaUi(page, "Work");
+  // "Home" survives the delete so the category picker still exists to be
+  // asserted against (with zero categories the picker shows an empty state).
+  await createCategoryViaUi(page, "Home");
   const categoryId = await findCategoryId(email, "work");
   expect(categoryId).toBeTruthy();
 
@@ -557,14 +563,15 @@ test("US4 S11/SC-004: confirming the delete removes the category from the list A
   await expect(page.getByText(/not deleted/i)).toBeVisible();
   await page.getByRole("button", { name: "Delete category" }).click();
   await expect(surface).toHaveCount(0);
-  await expect(page.getByTestId("category-empty-state")).toBeVisible();
+  // "Work" is gone from the list; "Home" remains.
+  await expect(page.getByTestId("category-name")).toHaveText(["Home"]);
   expect(await countCategories(email, "work")).toBe(0);
 
-  // Gone from the picker…
+  // Gone from the picker (which still exists — "Home" is left)…
   await page.goto(`${BASE_URL}/`);
   await page.getByTestId("edit-task").first().click();
   await expect(page.getByTestId("edit-task-surface")).toBeVisible();
-  const picker = page.getByLabel("Category");
+  const picker = page.getByLabel("Category", { exact: true });
   const pickerValues = await picker.evaluate((element) =>
     Array.from((element as HTMLSelectElement).options).map(
       (option) => option.value,
