@@ -16,14 +16,12 @@ export function TaskList({
   tasks,
   today,
   onCreateClick,
-  onToggleStatus,
   onEdit,
   onDelete,
 }: {
   tasks: TaskDto[];
   today: Date;
   onCreateClick?: () => void;
-  onToggleStatus?: (task: TaskDto) => void;
   onEdit?: (task: TaskDto) => void;
   onDelete?: (task: TaskDto) => void;
 }) {
@@ -56,9 +54,6 @@ export function TaskList({
           key={task.id}
           task={task}
           today={today}
-          onToggleStatus={
-            onToggleStatus ? () => onToggleStatus(task) : undefined
-          }
           onEdit={onEdit ? () => onEdit(task) : undefined}
           onDelete={onDelete ? () => onDelete(task) : undefined}
         />

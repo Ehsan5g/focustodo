@@ -1,8 +1,13 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+
 import type { TaskDto } from "@/server/tasks/service";
 import { isOverdue } from "@/server/tasks/rules";
+import { TaskStatusToggle } from "@/features/tasks/TaskStatusToggle";
 
 /**
- * TaskItem (feature 003-task-management, T019; contracts/
+ * TaskItem (feature 003-task-management, T019/T024; contracts/
  * routes-and-surfaces.md) — one list row for a `TaskDto` (D4: DTO only).
  *
  * Accessibility (FR-005, FR-012, FR-014): status and priority render as TEXT
@@ -10,9 +15,8 @@ import { isOverdue } from "@/server/tasks/rules";
  * derived at render time by the shared `isOverdue` from the task's calendar
  * day versus the injected `today` (D1: no clock reads inside the component).
  *
- * The complete/reopen, edit, and delete controls are wired by later stories
- * (US3 toggle, US4 edit, US5 delete) via the optional handlers; they render
- * always so the row's affordances exist from US2 onward.
+ * The complete/reopen control is the US3 optimistic toggle; the edit and
+ * delete controls are wired by US4/US5 via the optional handlers.
  */
 
 const STATUS_BADGES: Record<
@@ -36,16 +40,15 @@ const PRIORITY_BADGES: Record<
 export function TaskItem({
   task,
   today,
-  onToggleStatus,
   onEdit,
   onDelete,
 }: {
   task: TaskDto;
   today: Date;
-  onToggleStatus?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
+  const router = useRouter();
   const statusBadge = STATUS_BADGES[task.status];
   const priorityBadge = PRIORITY_BADGES[task.priority];
   const overdue =
@@ -91,17 +94,7 @@ export function TaskItem({
       </div>
 
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onToggleStatus}
-          className={controlClass}
-          data-testid="toggle-status"
-        >
-          <span aria-hidden="true">
-            {task.status === "COMPLETED" ? "↩" : "✓"}
-          </span>
-          {task.status === "COMPLETED" ? "Reopen" : "Complete"}
-        </button>
+        <TaskStatusToggle task={task} onUpdated={() => router.refresh()} />
         <button
           type="button"
           onClick={onEdit}

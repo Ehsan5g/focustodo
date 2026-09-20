@@ -49,19 +49,35 @@ export function TaskForm({
 }) {
   // D8 single-flight guard: the disabled button blocks user re-submission,
   // but a synchronous burst of submissions (e.g. scripted rapid clicks, D12
-  // S11) can dispatch before React re-renders the button disabled. Re-entrant
-  // calls while one submission is in flight return the SAME in-flight
-  // promise — the server action runs exactly once.
+  // S11) is queued by React's action queue and dispatched SEQUENTIALLY —
+  // each queued dispatch runs only after the previous action resolved, when
+  // the in-flight ref is already null. Two guards are therefore needed: the
+  // in-flight ref returns the SAME promise for concurrent dispatches, and
+  // `succeededRef` blocks any dispatch after a success — on success the
+  // surface closes (SC-001), so later dispatches are stragglers that must
+  // not create another task.
   const inFlightRef = useRef<Promise<TaskActionResult> | null>(null);
+  const succeededRef = useRef(false);
   const formAction = useCallback(
     async (
       prev: TaskActionResult | null,
       formData: FormData,
     ): Promise<TaskActionResult> => {
+      if (succeededRef.current) {
+        // A success already settled this form (the surface closes on
+        // success, SC-001) — prev is that success result, so straggler
+        // dispatches re-return it instead of hitting the server again.
+        return prev as TaskActionResult;
+      }
       if (inFlightRef.current) return inFlightRef.current;
-      const promise = action(prev, formData).finally(() => {
-        inFlightRef.current = null;
-      });
+      const promise = action(prev, formData)
+        .then((result) => {
+          if (result.status === "success") succeededRef.current = true;
+          return result;
+        })
+        .finally(() => {
+          inFlightRef.current = null;
+        });
       inFlightRef.current = promise;
       return promise;
     },

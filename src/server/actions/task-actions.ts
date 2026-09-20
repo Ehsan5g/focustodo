@@ -6,10 +6,15 @@ import { z } from "zod";
 import { requireSession } from "@/server/auth/session";
 import {
   createTask as createTaskInService,
+  setTaskStatus as setTaskStatusInService,
   type TaskDto,
 } from "@/server/tasks/service";
-import { GENERIC_FAILURE_MESSAGE } from "@/server/actions/task-messages";
-import { createTaskSchema } from "@/validation/task-schema";
+import {
+  GENERIC_FAILURE_MESSAGE,
+  TASK_GONE_MESSAGE,
+  TRANSITION_REJECTED_MESSAGE,
+} from "@/server/actions/task-messages";
+import { createTaskSchema, taskIdSchema } from "@/validation/task-schema";
 
 /**
  * Task server actions (feature 003-task-management, contracts/
@@ -110,4 +115,62 @@ export async function createTaskAction(
   }
 }
 
-// __CREATE_TASK__
+/**
+ * setTaskStatus (T023) — the single-interaction complete/reopen path
+ * (client side is optimistic, D3). The five steps, in order:
+ * 1. Validate `taskIdSchema` + the status enum shape.
+ * 2. Authenticate: requireSession().
+ * 3. Authorize: scoped lookup via the service — foreign/unknown id is the
+ *    SAME friendly failure (D9).
+ * 4. Execute: same-status no-op → success; the shared `validateTransition`
+ *    matrix rejects backward pairs with a `status` field error (D2).
+ * 5. Return the TaskActionResult union + revalidate the list.
+ */
+export async function setTaskStatusAction(
+  taskId: string,
+  next: string,
+): Promise<TaskActionResult> {
+  // Step 1: validate (param shapes — never user task content).
+  const parsedId = taskIdSchema.safeParse(taskId);
+  const parsedStatus = z
+    .enum(["TODO", "IN_PROGRESS", "COMPLETED"])
+    .safeParse(next);
+  if (!parsedId.success || !parsedStatus.success) {
+    return {
+      status: "validation_error",
+      fieldErrors: [{ field: "status", message: "Invalid request" }],
+    };
+  }
+
+  // Step 2: authenticate.
+  const session = await requireSession();
+  if (!session) {
+    return { status: "failure", message: "Please sign in to continue." };
+  }
+
+  // Step 3 + 4: authorize + execute in one scoped service call.
+  try {
+    const result = await setTaskStatusInService(
+      session.user.id,
+      parsedId.data,
+      parsedStatus.data,
+    );
+    if (result.ok) {
+      // Step 5: return + revalidate the list.
+      revalidatePath("/");
+      return { status: "success", task: result.task };
+    }
+    if (result.reason === "not_found") {
+      return { status: "failure", message: TASK_GONE_MESSAGE };
+    }
+    return {
+      status: "validation_error",
+      fieldErrors: [{ field: "status", message: TRANSITION_REJECTED_MESSAGE }],
+    };
+  } catch (error) {
+    const diagnostic =
+      error instanceof Error ? error.message : "unexpected error shape";
+    process.stderr.write(`setTaskStatusAction failed: ${diagnostic}\n`);
+    return { status: "failure", message: GENERIC_FAILURE_MESSAGE };
+  }
+}

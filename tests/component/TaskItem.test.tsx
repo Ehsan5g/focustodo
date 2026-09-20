@@ -6,6 +6,18 @@ import { TaskList } from "@/features/tasks/TaskList";
 import type { TaskDto } from "@/server/tasks/service";
 import { isOverdue } from "@/server/tasks/rules";
 
+// TaskItem uses next/navigation's useRouter (US3 resync); jsdom tests mock it.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
+
 /**
  * Component tests (F003 T016, FR-005/FR-012/FR-013, D12) for TaskItem and
  * the empty state: title, status badge, and priority badge rendered as TEXT

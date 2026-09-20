@@ -39,18 +39,30 @@ async function openCreateSurface(page: Page) {
   await expect(page.getByLabel("Title")).toBeVisible();
 }
 
-async function countTasks(title: string): Promise<number> {
+// Every DB cross-check is scoped to the test's OWN registered user (the
+// returned email): other tests, other files, and stale rows from killed runs
+// share the dev database — a title-only query would count them (hermetic
+// isolation for parallel workers and reruns).
+async function countTasks(email: string, title: string): Promise<number> {
   const { rows } = await pool.query<{ count: number }>(
-    "SELECT COUNT(*)::int AS count FROM tasks WHERE title = $1",
-    [title],
+    'SELECT COUNT(*)::int AS count FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email = $1 AND t.title = $2',
+    [email, title],
   );
   return rows[0]?.count ?? -1;
+}
+
+/** Create a task through the UI (defaults) and wait for the surface to close. */
+async function createTask(page: Page, title: string) {
+  await page.getByRole("button", { name: "New task" }).click();
+  await page.getByLabel("Title").fill(title);
+  await page.getByRole("button", { name: "Create task" }).click();
+  await expect(page.getByTestId("new-task-surface")).toHaveCount(0);
 }
 
 test("US1 S1: title-only create saves with defaults TODO/MEDIUM and the task appears", async ({
   page,
 }) => {
-  await registerAndOpenList(page);
+  const email = await registerAndOpenList(page);
   await openCreateSurface(page);
   await page.getByLabel("Title").fill("Buy milk");
   await page.getByRole("button", { name: "Create task" }).click();
@@ -66,8 +78,8 @@ test("US1 S1: title-only create saves with defaults TODO/MEDIUM and the task app
     description: string | null;
     dueDate: string | null;
   }>(
-    'SELECT status, priority, description, "dueDate"::text AS "dueDate" FROM tasks WHERE title = $1',
-    ["Buy milk"],
+    'SELECT t.status, t.priority, t.description, t."dueDate"::text AS "dueDate" FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email = $1 AND t.title = $2',
+    [email, "Buy milk"],
   );
   expect(rows).toHaveLength(1);
   expect(rows[0].status).toBe("TODO");
@@ -79,7 +91,7 @@ test("US1 S1: title-only create saves with defaults TODO/MEDIUM and the task app
 test("US1 S2: all-fields create (incl. initial status) saves every value exactly", async ({
   page,
 }) => {
-  await registerAndOpenList(page);
+  const email = await registerAndOpenList(page);
   await openCreateSurface(page);
   await page.getByLabel("Title").fill("Plan sprint");
   await page
@@ -97,8 +109,8 @@ test("US1 S2: all-fields create (incl. initial status) saves every value exactly
     description: string;
     dueDate: string;
   }>(
-    'SELECT status, priority, description, "dueDate"::text AS "dueDate" FROM tasks WHERE title = $1',
-    ["Plan sprint"],
+    'SELECT t.status, t.priority, t.description, t."dueDate"::text AS "dueDate" FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email = $1 AND t.title = $2',
+    [email, "Plan sprint"],
   );
   expect(rows).toHaveLength(1);
   expect(rows[0].status).toBe("IN_PROGRESS");
@@ -110,7 +122,7 @@ test("US1 S2: all-fields create (incl. initial status) saves every value exactly
 test("US1 S3: invalid submissions show field-level errors and create nothing", async ({
   page,
 }) => {
-  await registerAndOpenList(page);
+  const email = await registerAndOpenList(page);
   await openCreateSurface(page);
 
   // Empty title.
@@ -128,13 +140,13 @@ test("US1 S3: invalid submissions show field-level errors and create nothing", a
     page.getByText(/Title must be at most 120 characters/),
   ).toBeVisible();
 
-  expect(await countTasks("x".repeat(121))).toBe(0);
+  expect(await countTasks(email, "x".repeat(121))).toBe(0);
 });
 
 test("US1 S11: rapid double-click submit creates at most one task (scripted clicks, D12)", async ({
   page,
 }) => {
-  await registerAndOpenList(page);
+  const email = await registerAndOpenList(page);
   await openCreateSurface(page);
   await page.getByLabel("Title").fill("Only once");
   const submit = page.getByRole("button", { name: "Create task" });
@@ -149,7 +161,7 @@ test("US1 S11: rapid double-click submit creates at most one task (scripted clic
   });
 
   await expect(page.getByTestId("new-task-surface")).toHaveCount(0);
-  expect(await countTasks("Only once")).toBe(1);
+  expect(await countTasks(email, "Only once")).toBe(1);
 });
 
 test("US2 S5: a fresh account sees the empty state with a create-first-task action", async ({
@@ -210,7 +222,7 @@ test("US2 S4/SC-003/FR-004: two-user privacy — User B sees none of User A's ta
 }) => {
   const contextA = await browser.newContext();
   const pageA = await contextA.newPage();
-  await registerAndOpenList(pageA);
+  const emailA = await registerAndOpenList(pageA);
   for (const title of ["Alice secret", "Alice another"]) {
     await pageA.getByRole("button", { name: "New task" }).click();
     await pageA.getByLabel("Title").fill(title);
@@ -221,22 +233,152 @@ test("US2 S4/SC-003/FR-004: two-user privacy — User B sees none of User A's ta
 
   const contextB = await browser.newContext();
   const pageB = await contextB.newPage();
-  await registerAndOpenList(pageB);
+  const emailB = await registerAndOpenList(pageB);
   await expect(pageB.getByText(/create your first task/i)).toBeVisible();
   await expect(pageB.getByText("Alice secret")).toHaveCount(0);
   await expect(pageB.getByText("Alice another")).toHaveCount(0);
+  // B creates their own task; the two lists stay fully independent.
+  await createTask(pageB, "Bobbys own task");
+  await expect(pageB.getByText("Bobbys own task")).toBeVisible();
+  await expect(pageB.getByText("Alice secret")).toHaveCount(0);
 
-  // DB-level cross-check: the tasks created here exist and are owned by
-  // exactly two distinct users (UI isolation already proved B sees none of
-  // A's rows; this confirms the rows themselves are per-user in the DB).
+  // DB-level cross-check: A owns exactly her two rows and B exactly his one
+  // (UI isolation above proved the read scoping; this proves the rows
+  // themselves are per-user — scoped to the two registered accounts so other
+  // tests' or stale rows cannot leak into the count).
   const owners = await pool.query(
-    'SELECT COUNT(DISTINCT "userId")::int AS owners, COUNT(*)::int AS tasks FROM tasks t JOIN users u ON u.id = t."userId" WHERE t.title IN ($1, $2)',
-    ["Alice secret", "Alice another"],
+    'SELECT u.email, COUNT(*)::int AS tasks FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email IN ($1, $2) GROUP BY u.email',
+    [emailA, emailB],
   );
-  expect(owners.rows[0].owners).toBe(2);
-  expect(owners.rows[0].tasks).toBe(2);
+  const byEmail = new Map(
+    owners.rows.map((row) => [row.email as string, row.tasks as number]),
+  );
+  expect(byEmail.get(emailA)).toBe(2);
+  expect(byEmail.get(emailB)).toBe(1);
 
   await contextA.close();
   await contextB.close();
 });
-// __US3_TOGGLE__
+
+test("US3 S1: complete a TODO task directly — instant flip, persisted (forward skip)", async ({
+  page,
+}) => {
+  const email = await registerAndOpenList(page);
+  await createTask(page, "Toggle me");
+  await page.getByRole("button", { name: "Complete" }).click();
+
+  // The label flips to the target state without a reload (optimistic, D3).
+  await expect(page.getByRole("button", { name: "Reopen" })).toBeVisible();
+
+  // The write is confirmed server-side (polled — never a timing sleep).
+  await expect
+    .poll(async () => {
+      const { rows } = await pool.query<{ status: string }>(
+        'SELECT t.status FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email = $1 AND t.title = $2',
+        [email, "Toggle me"],
+      );
+      return rows[0]?.status;
+    })
+    .toBe("COMPLETED");
+});
+
+test("US3 S6/FR-008: reopen a COMPLETED task resets it to TODO", async ({
+  page,
+}) => {
+  const email = await registerAndOpenList(page);
+  await createTask(page, "Reopen me");
+  await page.getByRole("button", { name: "Complete" }).click();
+  await expect(page.getByRole("button", { name: "Reopen" })).toBeVisible();
+  // Wait for the server state (polled, not a sleep) so the Reopen click is
+  // issued against the settled COMPLETED state.
+  await expect
+    .poll(async () => {
+      const { rows } = await pool.query<{ status: string }>(
+        'SELECT t.status FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email = $1 AND t.title = $2',
+        [email, "Reopen me"],
+      );
+      return rows[0]?.status;
+    })
+    .toBe("COMPLETED");
+  await page.getByRole("button", { name: "Reopen" }).click();
+  await expect(page.getByRole("button", { name: "Complete" })).toBeVisible();
+
+  await expect
+    .poll(async () => {
+      const { rows } = await pool.query<{ status: string }>(
+        'SELECT t.status FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email = $1 AND t.title = $2',
+        [email, "Reopen me"],
+      );
+      return rows[0]?.status;
+    })
+    .toBe("TODO");
+});
+
+test("US3: rapid toggling settles consistent (scripted clicks, D12)", async ({
+  page,
+}) => {
+  const email = await registerAndOpenList(page);
+  await createTask(page, "Rapid toggle");
+  await page.getByRole("button", { name: "Complete" }).click();
+  await page.getByRole("button", { name: "Reopen" }).click();
+  await page.getByRole("button", { name: "Complete" }).click();
+  await page.getByRole("button", { name: "Reopen" }).click();
+
+  await expect(page.getByRole("button", { name: "Complete" })).toBeVisible();
+  await expect
+    .poll(async () => {
+      const { rows } = await pool.query<{ status: string }>(
+        'SELECT t.status FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email = $1 AND t.title = $2',
+        [email, "Rapid toggle"],
+      );
+      return rows[0]?.status;
+    })
+    .toBe("TODO");
+});
+
+test("US3 S7/SC-004: a failed toggle rolls back the UI with an understandable error and a reload matches the server (request interception, D12)", async ({
+  page,
+}) => {
+  const email = await registerAndOpenList(page);
+  await createTask(page, "Rollback target");
+  // D12 request interception: fail the NEXT server-action POST (Next.js
+  // server actions ride POST / with a Next-Action header — never task
+  // content in the URL). The task's toggle write is the next mutation.
+  let intercepted = false;
+  await page.route("**/", async (route) => {
+    const request = route.request();
+    if (
+      !intercepted &&
+      request.method() === "POST" &&
+      request.headerValue("Next-Action") !== null
+    ) {
+      intercepted = true;
+      await route.fulfill({ status: 500, body: "intercepted" });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.getByRole("button", { name: "Complete" }).click();
+
+  // The optimistic flip rolls back and a friendly error shows.
+  await expect(
+    page.getByText(/Something went wrong|no longer exists|try again/i).first(),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Complete" })).toBeVisible();
+
+  // A reload matches the server state: still TODO.
+  await page.unrouteAll();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Complete" })).toBeVisible();
+  await expect
+    .poll(async () => {
+      const { rows } = await pool.query<{ status: string }>(
+        'SELECT t.status FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email = $1 AND t.title = $2',
+        [email, "Rollback target"],
+      );
+      return rows[0]?.status;
+    })
+    .toBe("TODO");
+});
+// __US4_EDIT__

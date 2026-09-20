@@ -21,6 +21,11 @@ export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 30_000,
   retries: 0,
+  // One worker: all specs share the single Next dev server spawned by
+  // webServer, and parallel browser churn against that dev process has
+  // dropped server-action responses in dev ("stream closed early") — the
+  // toggles and auth flows must be validated against a settled server (D12).
+  workers: 1,
   use: {
     baseURL: "http://localhost:3000",
     headless: true,
