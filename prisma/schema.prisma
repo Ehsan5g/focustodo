@@ -32,6 +32,7 @@ model User {
   updatedAt    DateTime  @updatedAt
   sessions     Session[]
   tasks       Task[]
+  categories  Category[]
 
   // Prisma 7's new client generator keeps model names as-is; map to the
   // conventional snake_case table names (matches F001's health_check style).
@@ -56,12 +57,14 @@ model Session {
 }
 
 /// A personal to-do item owned by exactly one user (data-model.md Task,
-/// feature 003-task-management). `dueDate` is a PostgreSQL DATE — a calendar
+/// feature 003-task-management; the category link activated additively by
+/// feature 004-task-categories). `dueDate` is a PostgreSQL DATE — a calendar
 /// day with no time-of-day (research D1). `status` is forward-only after
 /// creation (TODO → IN_PROGRESS → COMPLETED; COMPLETED → TODO reopens),
 /// enforced by the shared pure `validateTransition` rule (research D2).
-/// `categoryId` is a reserved scalar — the relation materializes additively
-/// with the categories feature; NO relation/FK yet (research D11).
+/// `category` is the optional single-category link (F004 research D2):
+/// deleting a category sets `categoryId` to NULL (onDelete: SetNull) while
+/// the task keeps every other field (data-model invariant 6).
 model Task {
   id          String       @id @default(cuid())
   userId      String
@@ -71,13 +74,40 @@ model Task {
   priority    TaskPriority @default(MEDIUM)
   dueDate     DateTime?    @db.Date
   categoryId  String?
+  category    Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // The one F003 read pattern — per-user list, newest-first (research D6).
   @@index([userId, createdAt(sort: Desc)])
+  // F004: the task-list category-name join (D5) and the SetNull cascade
+  // scan on category deletion (D2, D6).
+  @@index([categoryId])
   @@map("tasks")
+}
+
+/// A named grouping owned by exactly one user (data-model.md Category,
+/// feature 004-task-categories). `name` is the entered name after trimming
+/// (original case preserved — the only displayed field, 1–60 characters).
+/// `nameKey` is the lowercased trimmed name, persisted for the per-user
+/// case-insensitive uniqueness AND the alphabetical ordering (research D1);
+/// it is an implementation column, never selected into any client-facing
+/// payload (data-model invariant 2, DTO rule D9).
+model Category {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  nameKey   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+
+  // Per-user case-insensitive uniqueness (D1); the `userId` leftmost prefix
+  // serves every per-user lookup — list, picker, ownership resolution (D6).
+  @@unique([userId, nameKey])
+  @@map("categories")
 }
 
 enum TaskStatus {

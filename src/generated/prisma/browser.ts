@@ -38,11 +38,24 @@ export type Session = Prisma.SessionModel
 /**
  * Model Task
  * A personal to-do item owned by exactly one user (data-model.md Task,
- * feature 003-task-management). `dueDate` is a PostgreSQL DATE — a calendar
+ * feature 003-task-management; the category link activated additively by
+ * feature 004-task-categories). `dueDate` is a PostgreSQL DATE — a calendar
  * day with no time-of-day (research D1). `status` is forward-only after
  * creation (TODO → IN_PROGRESS → COMPLETED; COMPLETED → TODO reopens),
  * enforced by the shared pure `validateTransition` rule (research D2).
- * `categoryId` is a reserved scalar — the relation materializes additively
- * with the categories feature; NO relation/FK yet (research D11).
+ * `category` is the optional single-category link (F004 research D2):
+ * deleting a category sets `categoryId` to NULL (onDelete: SetNull) while
+ * the task keeps every other field (data-model invariant 6).
  */
 export type Task = Prisma.TaskModel
+/**
+ * Model Category
+ * A named grouping owned by exactly one user (data-model.md Category,
+ * feature 004-task-categories). `name` is the entered name after trimming
+ * (original case preserved — the only displayed field, 1–60 characters).
+ * `nameKey` is the lowercased trimmed name, persisted for the per-user
+ * case-insensitive uniqueness AND the alphabetical ordering (research D1);
+ * it is an implementation column, never selected into any client-facing
+ * payload (data-model invariant 2, DTO rule D9).
+ */
+export type Category = Prisma.CategoryModel
