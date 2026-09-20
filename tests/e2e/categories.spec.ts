@@ -76,7 +76,7 @@ test("US1 S1: create “Work” → appears in the alphabetical category list (S
   await createCategoryViaUi(page, "Work");
 
   await expect(page.getByTestId("category-list")).toBeVisible();
-  await expect(page.getByTestId("category-item")).toHaveText(["Work"]);
+  await expect(page.getByTestId("category-name")).toHaveText(["Work"]);
   expect(await countCategories(email, "work")).toBe(1);
 });
 
@@ -121,7 +121,7 @@ test("US1 S4: a 60-character name is accepted; 61 characters is rejected", async
   const longName = "Long category name ".padEnd(60, "x");
   await openCategories(page);
   await createCategoryViaUi(page, longName);
-  await expect(page.getByTestId("category-item")).toHaveText([longName]);
+  await expect(page.getByTestId("category-name")).toHaveText([longName]);
   expect(await countCategories(email, longName.toLowerCase())).toBe(1);
 
   await openCreateSurface(page);
@@ -339,4 +339,186 @@ test("US2 S7/SC-003: B's picker never offers A's category and a forged submit is
     .toBe(0);
 
   await contextB.close();
+});
+
+// ——— F004 US3 (T023): rename propagation, near-field rejection, no-op ———
+
+/** Open a row's rename surface via its per-row control (exact-name scoped). */
+async function openRenameSurface(page: Page, currentName: string) {
+  await page
+    .getByTestId("category-item")
+    .filter({ has: page.getByText(currentName, { exact: true }) })
+    .getByTestId("rename-category")
+    .click();
+  const surface = page.getByTestId("rename-category-surface");
+  await expect(surface).toBeVisible();
+  return surface;
+}
+
+/** Create a task through the UI, optionally assigned to a category label. */
+async function createTaskViaUi(
+  page: Page,
+  title: string,
+  categoryLabel?: string,
+) {
+  await openTaskCreateSurface(page);
+  await page.getByLabel("Title").fill(title);
+  if (categoryLabel) {
+    await page.getByLabel("Category").selectOption({ label: categoryLabel });
+  }
+  await page.getByRole("button", { name: "Create task" }).click();
+  await expect(page.getByTestId("new-task-surface")).toHaveCount(0);
+}
+
+test("US3 S8/SC-005: renaming “Work” → “Deep Work” propagates to the list, the picker, and every task label", async ({
+  page,
+}) => {
+  const email = await registerUser(page);
+  await openCategories(page);
+  await createCategoryViaUi(page, "Work");
+  const categoryId = await findCategoryId(email, "work");
+  expect(categoryId).toBeTruthy();
+
+  await page.goto(`${BASE_URL}/`);
+  await createTaskViaUi(page, "Alpha", "Work");
+  await createTaskViaUi(page, "Beta", "Work");
+  await createTaskViaUi(page, "Gamma", "Work");
+  await expect(page.getByTestId("category-badge")).toHaveText([
+    "Work",
+    "Work",
+    "Work",
+  ]);
+
+  await openCategories(page);
+  const surface = await openRenameSurface(page, "Work");
+  // The rename surface opens PRE-FILLED with the current name.
+  await expect(page.getByLabel("Category name")).toHaveValue("Work");
+  await page.getByLabel("Category name").fill("Deep Work");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(surface).toHaveCount(0);
+
+  // The management list shows the new name…
+  await expect(page.getByTestId("category-name")).toHaveText(["Deep Work"]);
+  // …the DB row carries the new nameKey, still exactly one row…
+  expect(await countCategories(email, "deep work")).toBe(1);
+  expect(await countCategories(email, "work")).toBe(0);
+  // …every assigned task label shows the NEW name (reference, not a copy)…
+  await page.goto(`${BASE_URL}/`);
+  await expect(page.getByTestId("category-badge")).toHaveText([
+    "Deep Work",
+    "Deep Work",
+    "Deep Work",
+  ]);
+  // …and the picker offers the new label under the UNCHANGED id.
+  await page.getByTestId("edit-task").first().click();
+  await expect(page.getByTestId("edit-task-surface")).toBeVisible();
+  const picker = page.getByLabel("Category");
+  await expect(picker).toHaveValue(categoryId!);
+  const optionLabels = await picker.evaluate((element) =>
+    Array.from((element as HTMLSelectElement).options).map(
+      (option) => option.label,
+    ),
+  );
+  expect(optionLabels).toContain("Deep Work");
+});
+
+test("US3 S9: renaming to a case-insensitive duplicate is rejected near the field", async ({
+  page,
+}) => {
+  const email = await registerUser(page);
+  await openCategories(page);
+  await createCategoryViaUi(page, "Work");
+  await createCategoryViaUi(page, "Deep Work");
+
+  const surface = await openRenameSurface(page, "Work");
+  await page.getByLabel("Category name").fill("deep work");
+  await page.getByRole("button", { name: "Save changes" }).click();
+
+  // Inline near the field; the surface stays open; the old name remains.
+  await expect(
+    page.getByText("You already have a category with this name."),
+  ).toBeVisible();
+  await expect(surface).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(surface).toHaveCount(0);
+  await expect(page.getByTestId("category-name")).toHaveText([
+    "Deep Work",
+    "Work",
+  ]);
+  expect(await countCategories(email, "work")).toBe(1);
+  expect(await countCategories(email, "deep work")).toBe(1);
+});
+
+test("US3 S9: a 61-character rename is rejected and the old name remains", async ({
+  page,
+}) => {
+  const email = await registerUser(page);
+  await openCategories(page);
+  await createCategoryViaUi(page, "Short");
+
+  const surface = await openRenameSurface(page, "Short");
+  await page.getByLabel("Category name").fill("x".repeat(61));
+  await page.getByRole("button", { name: "Save changes" }).click();
+
+  await expect(
+    page.getByText("Category name must be at most 60 characters"),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(surface).toHaveCount(0);
+  await expect(page.getByTestId("category-name")).toHaveText(["Short"]);
+  expect(await countCategories(email, "short")).toBe(1);
+  expect(await countCategories(email, "x".repeat(61))).toBe(0);
+});
+
+test("US3 D8: renaming to the identical name is a no-op success", async ({
+  page,
+}) => {
+  const email = await registerUser(page);
+  await openCategories(page);
+  await createCategoryViaUi(page, "Stable");
+
+  const surface = await openRenameSurface(page, "Stable");
+  await page.getByLabel("Category name").fill("Stable");
+  await page.getByRole("button", { name: "Save changes" }).click();
+
+  // Success closes the surface; the name is unchanged; still one row.
+  await expect(surface).toHaveCount(0);
+  await expect(page.getByTestId("category-name")).toHaveText(["Stable"]);
+  expect(await countCategories(email, "stable")).toBe(1);
+});
+
+test("US3 S14: a task edit saved after a rename in another tab shows the CURRENT name", async ({
+  page,
+  context,
+}) => {
+  const email = await registerUser(page);
+  await openCategories(page);
+  await createCategoryViaUi(page, "Work");
+
+  await page.goto(`${BASE_URL}/`);
+  await createTaskViaUi(page, "Sync target", "Work");
+
+  // Open the edit surface BEFORE the rename — its picker snapshot is stale.
+  await page.getByTestId("edit-task").click();
+  const editSurface = page.getByTestId("edit-task-surface");
+  await expect(editSurface).toBeVisible();
+
+  // Another tab of the SAME session renames the category.
+  const pageB = await context.newPage();
+  await pageB.goto(`${BASE_URL}/categories`);
+  const surfaceB = await openRenameSurface(pageB, "Work");
+  await pageB.getByLabel("Category name").fill("Deep Work");
+  await pageB.getByRole("button", { name: "Save changes" }).click();
+  await expect(surfaceB).toHaveCount(0);
+
+  // Saving in the first tab stores the UNCHANGED id; the fresh join shows
+  // the CURRENT name — never an outdated label.
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(editSurface).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByTestId("category-badge")).toHaveText("Deep Work");
+  const renamedId = await findCategoryId(email, "deep work");
+  await expect
+    .poll(async () => taskCategoryId(email, "Sync target"))
+    .toBe(renamedId);
 });

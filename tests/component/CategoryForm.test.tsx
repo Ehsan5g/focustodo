@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CategoryForm } from "@/features/categories/CategoryForm";
 import type { CategoryActionResult } from "@/server/actions/category-actions";
@@ -127,4 +127,135 @@ it("renders the generic failure message (constitution V — friendly, never tech
   await user.type(screen.getByLabelText("Category name"), "Work");
   await user.click(screen.getByRole("button", { name: "Create category" }));
   await screen.findByText("Something went wrong. Please try again.");
+});
+
+// ——— F004 US3 (T024): the rename surface — pre-filled adaptive edit form ———
+//
+// The surface reuses CategoryForm with the current name prefilled, a hidden
+// categoryId, and edit-mode labels. Server errors (duplicate S9, length S9)
+// render near the field; Cancel closes with ZERO mutations; the field takes
+// visible keyboard focus (FR-013).
+describe("CategoryForm rename mode (F004 US3, T024)", () => {
+  it("opens pre-filled with the current name and submits the hidden categoryId with the new name (S8)", async () => {
+    const action = mockAction(okResult);
+    const user = userEvent.setup();
+
+    render(
+      <CategoryForm
+        action={action}
+        initial={{ name: "Work" }}
+        categoryId="cat-1"
+        submitLabel="Save changes"
+        cancelLabel="Cancel"
+        onCancel={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByLabelText("Category name");
+    expect(input).toHaveValue("Work");
+
+    await user.clear(input);
+    await user.type(input, "Deep Work");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    const formData = vi.mocked(action).mock.calls[0]![1] as FormData;
+    expect(formData.get("categoryId")).toBe("cat-1");
+    expect(formData.get("name")).toBe("Deep Work");
+  });
+
+  it("renders the duplicate error near the field and keeps the typed rename (S9)", async () => {
+    const action = mockAction({
+      status: "validation_error",
+      fieldErrors: [
+        {
+          field: "name",
+          message: "You already have a category with this name.",
+        },
+      ],
+    });
+    const user = userEvent.setup();
+
+    render(
+      <CategoryForm
+        action={action}
+        initial={{ name: "Work" }}
+        categoryId="cat-1"
+        submitLabel="Save changes"
+      />,
+    );
+
+    const input = screen.getByLabelText("Category name");
+    await user.clear(input);
+    await user.type(input, "deep work");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("You already have a category with this name."),
+      ).toBeInTheDocument(),
+    );
+    expect(input).toHaveValue("deep work");
+    expect(input).toBeInvalid();
+  });
+
+  it("renders the length error near the field for a 61-character rename (S9)", async () => {
+    const action = mockAction({
+      status: "validation_error",
+      fieldErrors: [
+        {
+          field: "name",
+          message: "Category name must be at most 60 characters",
+        },
+      ],
+    });
+    const user = userEvent.setup();
+
+    render(
+      <CategoryForm
+        action={action}
+        initial={{ name: "Short" }}
+        categoryId="cat-1"
+        submitLabel="Save changes"
+      />,
+    );
+
+    const input = screen.getByLabelText("Category name");
+    await user.clear(input);
+    await user.type(input, "x".repeat(61));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Category name must be at most 60 characters"),
+      ).toBeInTheDocument(),
+    );
+    expect(input).toBeInvalid();
+  });
+
+  it("cancel closes with zero mutations and the field takes visible focus (keyboard-operable, FR-013)", async () => {
+    const action = mockAction(okResult);
+    const onCancel = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <CategoryForm
+        action={action}
+        initial={{ name: "Work" }}
+        categoryId="cat-1"
+        submitLabel="Save changes"
+        cancelLabel="Cancel"
+        onCancel={onCancel}
+      />,
+    );
+
+    // First tab stop is the name field — focus must be visible (FR-013).
+    await user.tab();
+    expect(screen.getByLabelText("Category name")).toHaveFocus();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(onCancel).toHaveBeenCalled();
+    expect(action).not.toHaveBeenCalled();
+  });
 });
