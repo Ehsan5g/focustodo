@@ -6,7 +6,9 @@ import { z } from "zod";
 import { requireSession } from "@/server/auth/session";
 import {
   createTask as createTaskInService,
+  deleteTask as deleteTaskInService,
   setTaskStatus as setTaskStatusInService,
+  updateTask as updateTaskInService,
   type TaskDto,
 } from "@/server/tasks/service";
 import {
@@ -14,7 +16,11 @@ import {
   TASK_GONE_MESSAGE,
   TRANSITION_REJECTED_MESSAGE,
 } from "@/server/actions/task-messages";
-import { createTaskSchema, taskIdSchema } from "@/validation/task-schema";
+import {
+  createTaskSchema,
+  taskIdSchema,
+  updateTaskSchema,
+} from "@/validation/task-schema";
 
 /**
  * Task server actions (feature 003-task-management, contracts/
@@ -40,6 +46,10 @@ export type TaskActionResult =
   | { status: "success"; task: TaskDto }
   | { status: "validation_error"; fieldErrors: TaskFieldErrors }
   | { status: "failure"; message: string };
+
+/** deleteTask's narrower result — no task is returned (it is gone). */
+export type DeleteTaskResult =
+  { status: "success" } | { status: "failure"; message: string };
 
 const ACTION_FIELDS = [
   "title",
@@ -171,6 +181,119 @@ export async function setTaskStatusAction(
     const diagnostic =
       error instanceof Error ? error.message : "unexpected error shape";
     process.stderr.write(`setTaskStatusAction failed: ${diagnostic}\n`);
+    return { status: "failure", message: GENERIC_FAILURE_MESSAGE };
+  }
+}
+
+/**
+ * updateTask (T028) — the five steps, in order (contracts/server-actions.md):
+ * 1. Validate via `taskIdSchema` + `updateTaskSchema` (same field rules as
+ *    create; cleared optionals arrive as empty strings and normalize to null).
+ * 2. Authenticate: requireSession().
+ * 3. Authorize: the service loads scoped `where { id, userId }` — a foreign,
+ *    unknown, or already-deleted id is the SAME friendly failure (D9).
+ * 4. Execute: the shared `validateTransition` rejects a backward status with
+ *    a `status` field error and leaves the row untouched; cleared optionals
+ *    persist as null (FR-007).
+ * 5. Return the TaskActionResult union + revalidate the list.
+ */
+export async function updateTaskAction(
+  _prev: TaskActionResult | null,
+  formData: FormData,
+): Promise<TaskActionResult> {
+  // Step 1: validate (id + the partial field set).
+  const parsedId = taskIdSchema.safeParse(formData.get("taskId"));
+  if (!parsedId.success) {
+    return { status: "failure", message: TASK_GONE_MESSAGE };
+  }
+  const parsed = updateTaskSchema.safeParse({
+    title: formData.has("title") ? (formData.get("title") ?? "") : undefined,
+    description: formData.has("description")
+      ? (formData.get("description") ?? "")
+      : undefined,
+    dueDate: formData.has("dueDate")
+      ? formData.get("dueDate") || null
+      : undefined,
+    priority: formData.has("priority")
+      ? formData.get("priority") || undefined
+      : undefined,
+    status: formData.has("status")
+      ? formData.get("status") || undefined
+      : undefined,
+  });
+  if (!parsed.success) return validationError(parsed.error);
+
+  // Step 2: authenticate.
+  const session = await requireSession();
+  if (!session) {
+    return { status: "failure", message: "Please sign in to continue." };
+  }
+
+  // Step 3 + 4: authorize + execute in one scoped service call.
+  try {
+    const result = await updateTaskInService(
+      session.user.id,
+      parsedId.data,
+      parsed.data,
+    );
+    if (result.ok) {
+      // Step 5: return + revalidate the list.
+      revalidatePath("/");
+      return { status: "success", task: result.task };
+    }
+    if (result.reason === "not_found") {
+      return { status: "failure", message: TASK_GONE_MESSAGE };
+    }
+    return {
+      status: "validation_error",
+      fieldErrors: [{ field: "status", message: TRANSITION_REJECTED_MESSAGE }],
+    };
+  } catch (error) {
+    const diagnostic =
+      error instanceof Error ? error.message : "unexpected error shape";
+    process.stderr.write(`updateTaskAction failed: ${diagnostic}\n`);
+    return { status: "failure", message: GENERIC_FAILURE_MESSAGE };
+  }
+}
+
+/**
+ * deleteTask (T033) — the five steps, in order:
+ * 1. Validate via `taskIdSchema`.
+ * 2. Authenticate: requireSession().
+ * 3. Authorize: ownership IS the deletion predicate (D10).
+ * 4. Execute: scoped `deleteMany { id, userId }` via the service — an
+ *    affected count of 0 means unknown, foreign, or already-deleted, all the
+ *    SAME friendly failure (D9).
+ * 5. Return the result union + revalidate the list.
+ */
+export async function deleteTaskAction(
+  taskId: string,
+): Promise<DeleteTaskResult> {
+  // Step 1: validate.
+  const parsedId = taskIdSchema.safeParse(taskId);
+  if (!parsedId.success) {
+    return { status: "failure", message: TASK_GONE_MESSAGE };
+  }
+
+  // Step 2: authenticate.
+  const session = await requireSession();
+  if (!session) {
+    return { status: "failure", message: "Please sign in to continue." };
+  }
+
+  // Step 3 + 4: authorize + execute in one scoped service call.
+  try {
+    const deleted = await deleteTaskInService(session.user.id, parsedId.data);
+    if (!deleted) {
+      return { status: "failure", message: TASK_GONE_MESSAGE };
+    }
+    // Step 5: return + revalidate the list.
+    revalidatePath("/");
+    return { status: "success" };
+  } catch (error) {
+    const diagnostic =
+      error instanceof Error ? error.message : "unexpected error shape";
+    process.stderr.write(`deleteTaskAction failed: ${diagnostic}\n`);
     return { status: "failure", message: GENERIC_FAILURE_MESSAGE };
   }
 }

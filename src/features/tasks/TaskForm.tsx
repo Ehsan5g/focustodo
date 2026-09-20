@@ -4,6 +4,8 @@ import { useActionState, useCallback, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { type TaskActionResult } from "@/server/actions/task-actions";
+import { validateTransition } from "@/server/tasks/rules";
+import { TRANSITION_REJECTED_MESSAGE } from "@/server/actions/task-messages";
 
 /**
  * TaskForm (feature 003-task-management, T014; contracts/
@@ -42,10 +44,18 @@ export function TaskForm({
   action,
   initial,
   submitLabel = "Create task",
+  cancelLabel,
+  onCancel,
+  taskId,
 }: {
   action: TaskFormAction;
   initial?: TaskFormValues;
   submitLabel?: string;
+  /** When set, a Cancel button renders next to submit (edit surface, US4). */
+  cancelLabel?: string;
+  onCancel?: () => void;
+  /** When set, submitted as a hidden `taskId` field (edit surface, US4). */
+  taskId?: string;
 }) {
   // D8 single-flight guard: the disabled button blocks user re-submission,
   // but a synchronous burst of submissions (e.g. scripted rapid clicks, D12
@@ -94,6 +104,27 @@ export function TaskForm({
   const [priority, setPriority] = useState(initial?.priority ?? "MEDIUM");
   const [status, setStatus] = useState(initial?.status ?? "TODO");
 
+  // US4 (T029, D2): the shared `validateTransition` runs CLIENT-side so a
+  // backward status pick (e.g. IN_PROGRESS → TODO) shows the inline `status`
+  // field error BEFORE any submit — the server re-checks it anyway (D2).
+  // Same-status picks are no-ops, never violations. The check derives from
+  // the CURRENT select value and the task's stored status via the documented
+  // "adjust state during render" pattern (no setState inside effects).
+  const [clientStatusError, setClientStatusError] = useState<string | null>(
+    null,
+  );
+  const [seenStatus, setSeenStatus] = useState(status);
+  if (status !== seenStatus) {
+    setSeenStatus(status);
+    setClientStatusError(
+      initial?.status &&
+        status !== initial.status &&
+        !validateTransition(initial.status, status)
+        ? TRANSITION_REJECTED_MESSAGE
+        : null,
+    );
+  }
+
   const fieldErrors =
     state?.status === "validation_error" ? state.fieldErrors : [];
   const errorFor = (field: string) =>
@@ -104,6 +135,7 @@ export function TaskForm({
 
   return (
     <form action={formActionBase} className="flex flex-col gap-4" noValidate>
+      {taskId && <input type="hidden" name="taskId" value={taskId} />}
       <div className="flex flex-col gap-1.5">
         <label htmlFor="task-title">Title</label>
         <input
@@ -192,24 +224,24 @@ export function TaskForm({
           id="task-status"
           name="status"
           value={status}
-          onChange={(event) =>
-            setStatus(
-              (event.target.value as TaskFormValues["status"]) ?? "TODO",
-            )
-          }
           aria-invalid={errorFor("status") ? true : false}
           aria-describedby={
             errorFor("status") ? "task-status-error" : undefined
           }
+          onChange={(event) => {
+            setStatus(
+              (event.target.value as TaskFormValues["status"]) ?? "TODO",
+            );
+          }}
           className={inputClassName}
         >
           <option value="TODO">To do</option>
           <option value="IN_PROGRESS">In progress</option>
           <option value="COMPLETED">Completed</option>
         </select>
-        {errorFor("status") && (
+        {(clientStatusError ?? errorFor("status")) && (
           <p id="task-status-error" className="text-sm text-red-600">
-            {errorFor("status")}
+            {clientStatusError ?? errorFor("status")}
           </p>
         )}
       </div>
@@ -220,9 +252,19 @@ export function TaskForm({
         </p>
       )}
 
-      <Button type="submit" disabled={isPending}>
-        {isPending ? "Saving…" : submitLabel}
-      </Button>
+      <div className="flex gap-2">
+        {cancelLabel && onCancel && (
+          <Button type="button" variant="outline" onClick={onCancel}>
+            {cancelLabel}
+          </Button>
+        )}
+        <Button
+          type="submit"
+          disabled={isPending || clientStatusError !== null}
+        >
+          {isPending ? "Saving…" : submitLabel}
+        </Button>
+      </div>
     </form>
   );
 }

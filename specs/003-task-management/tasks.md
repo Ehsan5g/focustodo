@@ -116,14 +116,14 @@ Single full-stack Next.js project extending F001+F002 in place (plan.md): `src/`
 
 ### Tests for User Story 4 (write FIRST)
 
-- [ ] T026 [P] [US4] Write the failing component tests for the edit surface in `tests/component/TaskEditSurface.test.tsx`: form prefilled from the `TaskDto`; clearing description/dueDate submits `null` (FR-007); cancel closes with zero mutations (US4 S4); picking IN_PROGRESS→TODO (or COMPLETED→IN_PROGRESS) shows the inline `status` error BEFORE submit — the shared `validateTransition` runs client-side (clarified lifecycle, D2)
-- [ ] T027 [P] [US4] Write the failing E2E edit scenarios in `tests/e2e/tasks.spec.ts`: edit every field → persisted (FR-006); clear optional fields → removed without side effects (FR-007); cancel → task unchanged; a backward status submission → server rejects with a `status` field error and the task is unchanged (S6 third step, S8)
+- [X] T026 [P] [US4] Write the failing component tests for the edit surface in `tests/component/TaskEditSurface.test.tsx`: form prefilled from the `TaskDto`; clearing description/dueDate submits `null` (FR-007); cancel closes with zero mutations (US4 S4); picking IN_PROGRESS→TODO (or COMPLETED→IN_PROGRESS) shows the inline `status` error BEFORE submit — the shared `validateTransition` runs client-side (clarified lifecycle, D2)
+- [X] T027 [P] [US4] Write the failing E2E edit scenarios in `tests/e2e/tasks.spec.ts`: edit every field → persisted (FR-006); clear optional fields → removed without side effects (FR-007); cancel → task unchanged; a backward status submission → server rejects with a `status` field error and the task is unchanged (S6 third step, S8)
 
 ### Implementation for User Story 4
 
-- [ ] T028 [US4] Implement the `updateTask` server action in `src/server/actions/task-actions.ts` per contracts/server-actions.md — five steps: (1) validate via `updateTaskSchema` + `taskIdSchema`; (2) `requireSession()`; (3) authorize — scoped load of `{id, userId}`; foreign/unknown/already-deleted id → the SAME friendly failure (D9); (4) execute — `validateTransition(loaded.status, input.status)` stops a backward pair with a `status` field error; cleared optionals persist `null` (FR-007); (5) return `TaskActionResult` + `revalidatePath("/")` (depends on T006, T007, T009)
-- [ ] T029 [US4] Create the edit surface making T026 pass: reuse the adaptive Dialog/Sheet wrapper and TaskForm from US1 (T014) in edit mode — prefilled, cancel path, inline transition errors (depends on T026, T028)
-- [ ] T030 [US4] Validate US4 independently: T026/T027 green; quickstart S6 (backward-pick step) + S8 manual pass; gates green; commit
+- [X] T028 [US4] Implement the `updateTask` server action in `src/server/actions/task-actions.ts` per contracts/server-actions.md — five steps: (1) validate via `updateTaskSchema` + `taskIdSchema`; (2) `requireSession()`; (3) authorize — scoped load of `{id, userId}`; foreign/unknown/already-deleted id → the SAME friendly failure (D9); (4) execute — `validateTransition(loaded.status, input.status)` stops a backward pair with a `status` field error; cleared optionals persist `null` (FR-007); (5) return `TaskActionResult` + `revalidatePath("/")` (depends on T006, T007, T009)
+- [X] T029 [US4] Create the edit surface making T026 pass: reuse the adaptive Dialog/Sheet wrapper and TaskForm from US1 (T014) in edit mode — prefilled, cancel path, inline transition errors (depends on T026, T028)
+- [X] T030 [US4] Validate US4 independently: T026/T027 green; quickstart S6 (backward-pick step) + S8 manual pass; gates green; commit
 
 **Checkpoint**: Editing is safe — full-field updates, honest clearing, untouched cancels, illegal transitions blocked on both sides.
 
@@ -135,14 +135,14 @@ Single full-stack Next.js project extending F001+F002 in place (plan.md): `src/`
 
 ### Tests for User Story 5 (write FIRST)
 
-- [ ] T031 [P] [US5] Write the failing component tests for DeleteConfirmDialog in `tests/component/DeleteConfirmDialog.test.tsx`: confirm invokes the `deleteTask` action; cancel closes with zero mutations (FR-010); the dialog is fully keyboard-operable with visible focus (FR-014, D7)
-- [ ] T032 [P] [US5] Write the failing E2E delete scenarios in `tests/e2e/tasks.spec.ts`: confirm → task removed permanently (S9, SC-006); cancel → untouched; a stale second-tab delete → friendly failure, no crash, the list recovers after revalidation (FR-011, D12)
+- [X] T031 [P] [US5] Write the failing component tests for DeleteConfirmDialog in `tests/component/DeleteConfirmDialog.test.tsx`: confirm invokes the `deleteTask` action; cancel closes with zero mutations (FR-010); the dialog is fully keyboard-operable with visible focus (FR-014, D7)
+- [X] T032 [P] [US5] Write the failing E2E delete scenarios in `tests/e2e/tasks.spec.ts`: confirm → task removed permanently (S9, SC-006); cancel → untouched; a stale second-tab delete → friendly failure, no crash, the list recovers after revalidation (FR-011, D12)
 
 ### Implementation for User Story 5
 
-- [ ] T033 [US5] Implement the `deleteTask` server action in `src/server/actions/task-actions.ts` per contracts/server-actions.md — five steps: (1) validate via `taskIdSchema`; (2) `requireSession()`; (3) authorize — ownership IS the scoping; (4) execute — scoped `deleteMany { id, userId }` (D10); affected count 0 → the SAME friendly failure (D9); (5) return `TaskActionResult` + `revalidatePath("/")` (depends on T009)
-- [ ] T034 [US5] Create `src/features/tasks/DeleteConfirmDialog.tsx` (shadcn/ui AlertDialog, D7) and wire the delete control into TaskItem making T031 pass; rapid repeat clicks must not double-open the dialog or double-submit (D8; US1 S4 pattern) (depends on T031, T033)
-- [ ] T035 [US5] Validate US5 independently: T031/T032 green; quickstart S9 manual pass; gates green; commit
+- [X] T033 [US5] Implement the `deleteTask` server action in `src/server/actions/task-actions.ts` per contracts/server-actions.md — five steps: (1) validate via `taskIdSchema`; (2) `requireSession()`; (3) authorize — ownership IS the scoping; (4) execute — scoped `deleteMany { id, userId }` (D10); affected count 0 → the SAME friendly failure (D9); (5) return `TaskActionResult` + `revalidatePath("/")` (depends on T009)
+- [X] T034 [US5] Create `src/features/tasks/DeleteConfirmDialog.tsx` (shadcn/ui AlertDialog, D7) and wire the delete control into TaskItem making T031 pass; rapid repeat clicks must not double-open the dialog or double-submit (D8; US1 S4 pattern) (depends on T031, T033)
+- [X] T035 [US5] Validate US5 independently: T031/T032 green; quickstart S9 manual pass; gates green; commit
 
 **Checkpoint**: Deletion is deliberate and honest — confirmed, permanent, stale-safe.
 

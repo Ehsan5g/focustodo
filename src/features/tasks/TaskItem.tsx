@@ -1,9 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import type { TaskDto } from "@/server/tasks/service";
 import { isOverdue } from "@/server/tasks/rules";
+import { DeleteConfirmDialog } from "@/features/tasks/DeleteConfirmDialog";
+import { TaskEditSurface } from "@/features/tasks/TaskEditSurface";
 import { TaskStatusToggle } from "@/features/tasks/TaskStatusToggle";
 
 /**
@@ -49,6 +52,9 @@ export function TaskItem({
   onDelete?: () => void;
 }) {
   const router = useRouter();
+  // US4/US5 (T029/T034): each row owns its edit surface and confirm dialog.
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const statusBadge = STATUS_BADGES[task.status];
   const priorityBadge = PRIORITY_BADGES[task.priority];
   const overdue =
@@ -97,7 +103,10 @@ export function TaskItem({
         <TaskStatusToggle task={task} onUpdated={() => router.refresh()} />
         <button
           type="button"
-          onClick={onEdit}
+          onClick={() => {
+            setEditOpen(true);
+            onEdit?.();
+          }}
           className={controlClass}
           data-testid="edit-task"
         >
@@ -106,7 +115,10 @@ export function TaskItem({
         </button>
         <button
           type="button"
-          onClick={onDelete}
+          onClick={() => {
+            setDeleteOpen(true);
+            onDelete?.();
+          }}
           className={controlClass}
           data-testid="delete-task"
         >
@@ -114,6 +126,19 @@ export function TaskItem({
           Delete
         </button>
       </div>
+
+      <TaskEditSurface
+        task={task}
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+      />
+      <DeleteConfirmDialog
+        taskId={task.id}
+        taskTitle={task.title}
+        open={deleteOpen}
+        onDeleted={() => router.refresh()}
+        onClose={() => setDeleteOpen(false)}
+      />
     </li>
   );
 }

@@ -382,3 +382,241 @@ test("US3 S7/SC-004: a failed toggle rolls back the UI with an understandable er
     .toBe("TODO");
 });
 // __US4_EDIT__
+
+test("US4 S8: edit every field, save, and the changes persist (FR-006)", async ({
+  page,
+}) => {
+  const email = await registerAndOpenList(page);
+  await createTask(page, "Editable task");
+
+  // data-testid over role-name: the toggle button's aria-label contains the
+  // task title ("Complete \"Editable task\""), which substring-matches "Edit".
+  await page.getByTestId("edit-task").click();
+  const surface = page.getByTestId("edit-task-surface");
+  await expect(surface).toBeVisible();
+  await expect(page.getByLabel("Title")).toHaveValue("Editable task");
+
+  await page.getByLabel("Title").fill("Edited task");
+  await page.getByLabel("Description").fill("Edited description via E2E run");
+  await page.getByLabel("Due date").fill("2026-12-31");
+  await page.getByLabel("Priority").selectOption("HIGH");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(surface).toHaveCount(0);
+
+  // The list reflects the edit immediately.
+  await expect(page.getByText("Edited task")).toBeVisible();
+  await expect(page.getByText(/High priority/i)).toBeVisible();
+  await expect(page.getByText(/Due 2026-12-31/)).toBeVisible();
+
+  // Persistence: a reload still shows the edited values.
+  await page.reload();
+  await expect(page.getByText("Edited task")).toBeVisible();
+  await expect(page.getByText(/Due 2026-12-31/)).toBeVisible();
+
+  const { rows } = await pool.query<{
+    title: string;
+    description: string | null;
+    priority: string;
+  }>(
+    'SELECT t.title, t.description, t.priority FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email = $1',
+    [email],
+  );
+  expect(rows).toHaveLength(1);
+  expect(rows[0].title).toBe("Edited task");
+  expect(rows[0].description).toBe("Edited description via E2E run");
+  expect(rows[0].priority).toBe("HIGH");
+});
+
+test("US4 S8: clearing optional fields removes them without side effects (FR-007)", async ({
+  page,
+}) => {
+  const email = await registerAndOpenList(page);
+  await openCreateSurface(page);
+  await page.getByLabel("Title").fill("Clearable task");
+  await page.getByLabel("Description").fill("To be cleared");
+  await page.getByLabel("Due date").fill("2026-11-01");
+  await page.getByRole("button", { name: "Create task" }).click();
+  await expect(page.getByTestId("new-task-surface")).toHaveCount(0);
+
+  await page.getByTestId("edit-task").click();
+  const surface = page.getByTestId("edit-task-surface");
+  await expect(surface).toBeVisible();
+  // Prefilled optionals reflect the stored values.
+  await expect(page.getByLabel("Description")).toHaveValue("To be cleared");
+  await expect(page.getByLabel("Due date")).toHaveValue("2026-11-01");
+
+  await page.getByLabel("Description").fill("");
+  await page.getByLabel("Due date").fill("");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(surface).toHaveCount(0);
+
+  // The task itself and its non-optional state are untouched.
+  await expect(page.getByText("Clearable task")).toBeVisible();
+  await expect(page.getByText(/To be cleared/)).toHaveCount(0);
+  await expect(page.getByText(/Due 2026-11-01/)).toHaveCount(0);
+
+  const { rows } = await pool.query<{
+    description: string | null;
+    dueDate: string | null;
+    status: string;
+    priority: string;
+  }>(
+    'SELECT t.description, t."dueDate"::text AS "dueDate", t.status, t.priority FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email = $1',
+    [email],
+  );
+  expect(rows).toHaveLength(1);
+  expect(rows[0].description).toBeNull();
+  expect(rows[0].dueDate).toBeNull();
+  expect(rows[0].status).toBe("TODO");
+  expect(rows[0].priority).toBe("MEDIUM");
+});
+
+test("US4 S8: cancelling an edit leaves the task untouched", async ({
+  page,
+}) => {
+  const email = await registerAndOpenList(page);
+  await createTask(page, "Cancel target");
+
+  await page.getByTestId("edit-task").click();
+  const surface = page.getByTestId("edit-task-surface");
+  await expect(surface).toBeVisible();
+  await page.getByLabel("Title").fill("Should NOT persist");
+  // Scoped to the surface: the row's toggle aria-label also contains
+  // "Cancel" (the task title), so a page-wide role query would be ambiguous.
+  await surface.getByRole("button", { name: "Cancel" }).click();
+  await expect(surface).toHaveCount(0);
+
+  await expect(page.getByText("Cancel target")).toBeVisible();
+  await expect(page.getByText("Should NOT persist")).toHaveCount(0);
+
+  const { rows } = await pool.query<{ title: string }>(
+    'SELECT t.title FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email = $1',
+    [email],
+  );
+  expect(rows.map((r) => r.title)).toEqual(["Cancel target"]);
+});
+
+test("US4 S6: a backward status submission is rejected with a status field error and the task is unchanged", async ({
+  page,
+}) => {
+  const email = await registerAndOpenList(page);
+  await openCreateSurface(page);
+  await page.getByLabel("Title").fill("Forward only");
+  await page.getByLabel("Status").selectOption("IN_PROGRESS");
+  await page.getByRole("button", { name: "Create task" }).click();
+  await expect(page.getByTestId("new-task-surface")).toHaveCount(0);
+
+  await page.getByTestId("edit-task").click();
+  const surface = page.getByTestId("edit-task-surface");
+  await expect(surface).toBeVisible();
+  await page.getByLabel("Status").selectOption("TODO");
+
+  // D2: the client-side transition gate rejects the backward pick BEFORE any
+  // submit — the inline `status` field error shows immediately and the submit
+  // is disabled, so no update request is even possible.
+  await expect(page.getByText(/Status can only move forward/i)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Save changes" }),
+  ).toBeDisabled();
+  await expect(surface).toBeVisible();
+
+  // The task is unchanged server-side.
+  await expect
+    .poll(async () => {
+      const { rows } = await pool.query<{ status: string }>(
+        'SELECT t.status FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email = $1',
+        [email],
+      );
+      return rows[0]?.status;
+    })
+    .toBe("IN_PROGRESS");
+});
+
+test("US5 S9: deleting with confirmation removes the task permanently (SC-006)", async ({
+  page,
+}) => {
+  const email = await registerAndOpenList(page);
+  await createTask(page, "Delete me");
+
+  await page.getByTestId("delete-task").click();
+  const dialog = page.getByTestId("delete-confirm-dialog");
+  await expect(dialog).toBeVisible();
+  await page.getByRole("button", { name: "Delete permanently" }).click();
+  await expect(dialog).toHaveCount(0);
+
+  await expect(page.getByText("Delete me")).toHaveCount(0);
+  await expect(page.getByTestId("task-empty-state")).toBeVisible();
+
+  await expect
+    .poll(async () => {
+      const { rows } = await pool.query<{ count: number }>(
+        'SELECT COUNT(*)::int AS count FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email = $1',
+        [email],
+      );
+      return rows[0]?.count ?? -1;
+    })
+    .toBe(0);
+});
+
+test("US5 S9: cancelling a deletion leaves the task untouched", async ({
+  page,
+}) => {
+  const email = await registerAndOpenList(page);
+  await createTask(page, "Keep me");
+
+  await page.getByTestId("delete-task").click();
+  const dialog = page.getByTestId("delete-confirm-dialog");
+  await expect(dialog).toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toHaveCount(0);
+
+  await expect(page.getByText("Keep me")).toBeVisible();
+  const { rows } = await pool.query<{ count: number }>(
+    'SELECT COUNT(*)::int AS count FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email = $1',
+    [email],
+  );
+  expect(rows[0].count).toBe(1);
+});
+
+test("US5 S9/FR-011: a stale delete of an already-deleted task shows a friendly failure and the list recovers", async ({
+  page,
+}) => {
+  const email = await registerAndOpenList(page);
+  await createTask(page, "Stale delete target");
+
+  // Wait for the creation revalidation to settle so the row we remove really
+  // is only "stale-render stale", not still in flight.
+  await expect(page.getByText("Stale delete target")).toBeVisible();
+
+  // Simulate the other tab deleting the row out from under this stale
+  // render: remove it directly in the database.
+  const { rows } = await pool.query<{ id: string }>(
+    'SELECT t.id FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email = $1',
+    [email],
+  );
+  expect(rows).toHaveLength(1);
+  await pool.query("DELETE FROM tasks WHERE id = $1", [rows[0].id]);
+
+  // The page still shows the task (stale render); delete it there.
+  await page.getByTestId("delete-task").click();
+  const dialog = page.getByTestId("delete-confirm-dialog");
+  await expect(dialog).toBeVisible();
+  await page.getByRole("button", { name: "Delete permanently" }).click();
+
+  // Friendly feedback, no crash. Per the D9/T031 contract the dialog stays
+  // open with the message inside; the user dismisses it themselves.
+  await expect(
+    page.getByText(/no longer exists|refresh to see/i).first(),
+  ).toBeVisible();
+  await expect(dialog).toBeVisible();
+  await page
+    .getByTestId("delete-confirm-dialog")
+    .getByRole("button", { name: "Cancel" })
+    .click();
+  await expect(dialog).toHaveCount(0);
+
+  // The list recovers: a reload reflects the server state (row is gone).
+  await page.reload();
+  await expect(page.getByText("Stale delete target")).toHaveCount(0);
+  await expect(page.getByTestId("task-empty-state")).toBeVisible();
+});
