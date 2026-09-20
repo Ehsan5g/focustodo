@@ -1,17 +1,20 @@
 # FocusTodo
 
 A focused todo application. This repository contains the verified **project
-foundation** (feature `001-project-foundation`) plus **email/password
-authentication** (feature `002-user-auth`) — tooling, database baseline,
-design system, app shell, and a full account/session layer with protected
-routes and sliding 30-day sessions.
+foundation** (feature `001-project-foundation`), **email/password
+authentication** (feature `002-user-auth`), and **task management**
+(feature `003-task-management`) — tooling, database baseline, design system,
+app shell, a full account/session layer with protected routes and sliding
+30-day sessions, and the per-user task list with create/edit/complete/delete.
 
 ## Product
 
 FocusTodo helps you keep a focused, fast todo list. The foundation feature
 proves every quality gate and the app shell end-to-end; user authentication
 adds registration, sign-in/sign-out, protected routes with redirects, and
-trustworthy revocable sessions. Task features arrive in future features.
+trustworthy revocable sessions; task management turns the protected home page
+into the user's own task list — create, edit, complete/reopen, and delete with
+per-user scoping and forward-only status transitions.
 
 ## Features
 
@@ -25,6 +28,12 @@ trustworthy revocable sessions. Task features arrive in future features.
   sessions with a sliding 30-day window, protected routes with
   `?next=` destination preservation, signed-in bounce on auth views,
   multi-tab revocation, and graceful expiry messaging.
+- **003-task-management (implemented)** — a per-user task list on the
+  protected home page: create with adaptive Dialog/Sheet capture, edit every
+  field with honest optional clearing, optimistic complete/reopen with
+  rollback, confirmed permanent deletion, forward-only status transitions
+  validated on BOTH sides by one shared rule, and stale-safe friendly
+  failures — no new dependencies, no new env vars.
 
 ## Tech stack
 
@@ -39,14 +48,20 @@ trustworthy revocable sessions. Task features arrive in future features.
 
 ## Architecture
 
-- **App Router pages** render via server components; the theme toggle is the
-  only client component (minimal client JS).
+- **App Router pages** render via server components; interactive task
+  surfaces (capture, edit, delete confirmation, status toggle) are
+  feature-scoped client components under `src/features/tasks/`.
+- **Server Actions with a five-step contract** — validate → session →
+  authorize → execute → respond — in `src/server/actions/task-actions.ts`;
+  the client never supplies `userId` (it resolves from the session) and
+  never receives raw Prisma objects (DTOs only).
 - **`src/lib/env.ts`** — single Zod-validated environment module; the process
   exits with ONE actionable message on invalid configuration (fail fast).
 - **`src/server/db.ts`** — the only file importing Prisma; dev singleton on
   `globalThis` survives hot reload.
-- **`prisma/schema.prisma`** — `User` + `Session` business models; schema
-  changes are migration-based (`db:migrate` / `db:deploy`), never `db push`.
+- **`prisma/schema.prisma`** — `User` + `Session` + `Task` business models;
+  schema changes are migration-based (`db:migrate` / `db:deploy`), never
+  `db push`.
 - **Design system** — `src/components/ui/*` primitives (shadcn/ui conventions)
   over CSS-variable tokens in `src/app/globals.css` (light values on `:root`,
   dark on `.dark`).
@@ -54,12 +69,12 @@ trustworthy revocable sessions. Task features arrive in future features.
 ## Project structure
 
 ```
-prisma/            schema.prisma (User + Session), migrations/, seed.ts
-src/app/           App Router: layout.tsx, (auth)/ register+sign-in, (protected)/ home, api/health
+prisma/            schema.prisma (User + Session + Task), migrations/, seed.ts
+src/app/           App Router: layout.tsx, (auth)/ register+sign-in, (protected)/ task list, api/health
 src/components/    ui/ primitives, theme/ (provider + toggle)
-src/features/      auth/ (RegisterForm, SignInForm, SignOutButton)
+src/features/      auth/ (RegisterForm, SignInForm, SignOutButton), tasks/ (TaskList, TaskItem, TaskForm, TaskEditSurface, DeleteConfirmDialog)
 src/lib/           env.ts (validated env), utils.ts (cn)
-src/server/        db.ts (Prisma singleton), auth/ (Auth.js core, session service, scrypt), actions/
+src/server/        db.ts (Prisma singleton), tasks/ (pure rules: transitions, overdue), auth/ (Auth.js core, session service, scrypt), actions/
 src/middleware.ts  advisory edge protection (JWT presence check)
 src/validation/    shared Zod schemas (single source of truth)
 tests/             unit/ + component/ (Vitest), e2e/ (Playwright)
@@ -105,10 +120,13 @@ npm run db:deploy    # prisma migrate deploy — apply without edits (fresh clon
 ```
 
 The first business migration (`user_auth`) creates the `users` and `sessions`
-tables. On a fresh clone: `docker compose down -v` + `db:up` + `db:deploy`
-(or `db:migrate`) recreates the database from zero with no manual steps —
-the `users`/`sessions` tables, the email-unique constraint, and the
-`sessions.userId` / `sessions.expiresAt` indexes come with it.
+tables; `task_management` adds the `tasks` table with its two enums
+(`TaskStatus`, `TaskPriority`) and the one adopted composite index
+`(userId, createdAt DESC)`. On a fresh clone: `docker compose down -v` +
+`db:up` + `db:deploy` (or `db:migrate`) recreates the database from zero with
+no manual steps — the `users`/`sessions` tables, the email-unique constraint,
+the `sessions.userId` / `sessions.expiresAt` indexes, and the `tasks` table
+with its cascade FK to `users` come with it.
 
 ## Quality gates
 
@@ -178,6 +196,33 @@ This project is developed with [Spec Kit](https://github.com/github/spec-kit):
   (N=16384, r=8, p=1, 64-byte key, per-hash random salt), stored as
   `scrypt$N$r$p$<salt-b64>$<hash-b64>`; plaintext never touches storage,
   logs, or responses.
+
+### Task management
+
+- **Pure shared rules, one implementation** (D1/D2): status transitions and
+  overdue derivation live as pure functions in `src/server/tasks/rules.ts`
+  and are shared verbatim by the server actions and the client form —
+  backward picks are rejected with the SAME inline `status` field error on
+  both sides, and overdue is always derived from the calendar day at render,
+  never stored or computed with `Date.now()` inside render.
+- **DTO-only server boundary** (D4): server actions return a discriminated
+  `TaskActionResult` of plain `TaskDto` objects; `userId` is never accepted
+  from the client and never appears in any DTO — no raw Prisma object ever
+  crosses the server/client boundary.
+- **Optimistic complete/reopen with rollback** (D3): the status toggle flips
+  instantly and rolls back on failure; E2E proves the rollback via request
+  interception (double-submit via scripted rapid clicks — never timing
+  sleeps, D12).
+- **Scoped `deleteMany` deletion** (D10): deletion runs as
+  `deleteMany({ id, userId })` so ownership IS the authorization; an unknown,
+  foreign, or already-deleted id yields the SAME friendly message
+  ("no longer exists — refresh to see your current list") with no internal
+  detail leaked (D9), and the confirmed dialog is click-gated against
+  double-submission (D8).
+- **Zero new dependencies, zero new env vars** (D7, D13): the whole feature
+  is built from the existing stack — Zod schemas, existing shadcn/ui
+  primitives, the established server-action pattern, and the existing
+  `DATABASE_URL`/`AUTH_SECRET` configuration.
 
 ## Troubleshooting
 
