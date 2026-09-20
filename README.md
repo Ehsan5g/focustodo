@@ -3,9 +3,11 @@
 A focused todo application. This repository contains the verified **project
 foundation** (feature `001-project-foundation`), **email/password
 authentication** (feature `002-user-auth`), and **task management**
-(feature `003-task-management`) — tooling, database baseline, design system,
+(feature `003-task-management`), and **task categories**
+(feature `004-task-categories`) — tooling, database baseline, design system,
 app shell, a full account/session layer with protected routes and sliding
-30-day sessions, and the per-user task list with create/edit/complete/delete.
+30-day sessions, the per-user task list with create/edit/complete/delete, and
+per-user category management with assignment.
 
 ## Product
 
@@ -34,6 +36,11 @@ per-user scoping and forward-only status transitions.
   rollback, confirmed permanent deletion, forward-only status transitions
   validated on BOTH sides by one shared rule, and stale-safe friendly
   failures — no new dependencies, no new env vars.
+- **004-task-categories (implemented)** — per-user categories on a protected
+  `/categories` page: create, rename, and delete with a server-side
+  case-insensitive uniqueness rule, label propagation by reference, and
+  `SetNull` reassignment on delete; tasks optionally carry a category badge
+  chosen in the extended task form.
 
 ## Tech stack
 
@@ -119,14 +126,19 @@ npm run db:migrate   # prisma migrate dev — create/apply local migrations
 npm run db:deploy    # prisma migrate deploy — apply without edits (fresh clone)
 ```
 
-The first business migration (`user_auth`) creates the `users` and `sessions`
-tables; `task_management` adds the `tasks` table with its two enums
-(`TaskStatus`, `TaskPriority`) and the one adopted composite index
-`(userId, createdAt DESC)`. On a fresh clone: `docker compose down -v` +
-`db:up` + `db:deploy` (or `db:migrate`) recreates the database from zero with
-no manual steps — the `users`/`sessions` tables, the email-unique constraint,
-the `sessions.userId` / `sessions.expiresAt` indexes, and the `tasks` table
-with its cascade FK to `users` come with it.
+The migrations so far: `user_auth` creates the `users` and `sessions` tables
+(the email-unique constraint and the `sessions.userId` / `sessions.expiresAt`
+indexes come with it); `task_management` adds the `tasks` table with its two
+enums (`TaskStatus`, `TaskPriority`) and the composite index
+`(userId, createdAt DESC)`; `task_categories` adds the `categories` table —
+per-user rows with a persisted lowercase `nameKey` powering BOTH the
+case-insensitive uniqueness rule and alphabetical ordering — and activates the
+reserved `tasks.categoryId` link with an `onDelete: SetNull` FK, so deleting a
+category nulls only the task links (tasks are never deleted or otherwise
+mutated). On a fresh clone: `docker compose down -v` + `db:up` + `db:deploy`
+(or `db:migrate`) recreates the database from zero with no manual steps —
+including the `categories` table, its cascade FK to `users`, and the adopted
+`categories(userId, nameKey)` / `tasks(categoryId)` indexes.
 
 ## Quality gates
 
@@ -223,6 +235,36 @@ This project is developed with [Spec Kit](https://github.com/github/spec-kit):
   is built from the existing stack — Zod schemas, existing shadcn/ui
   primitives, the established server-action pattern, and the existing
   `DATABASE_URL`/`AUTH_SECRET` configuration.
+
+### Task categories
+
+- **Persisted `nameKey` is the single ordering/uniqueness key** (D1): each
+  category stores a lowercase `nameKey` alongside the display `name`; the DB
+  rule and the server action use it for case-insensitive duplicate rejection
+  ("Work" vs "work"), and the same column powers the alphabetical list order —
+  one persisted fact, two behaviors, no runtime `toLowerCase()` tricks.
+- **Deletion touches only links** (D2, FR-010/FR-011): the
+  `onDelete: SetNull` FK nulls the `taskId → categoryId` links when a category
+  is deleted; assigned tasks survive intact as uncategorized — the
+  confirmation copy states this outcome explicitly (US4.1).
+- **Assignment rides the extended task schemas — no new action** (D3):
+  create/edit-task reuse the same shared Zod schemas extended with an optional
+  `categoryId`; the task actions validate that the id belongs to the session
+  user and resolve the category server-side (never trusting client labels).
+- **Server-side resolution with indistinguishable failures** (D4): the
+  category used by a task action is looked up server-side; a stale id fails
+  with the same friendly message as an unknown id — no internals, no
+  existence leaks.
+- **Propagation by reference** (D5): `TaskDto` carries `categoryName`
+  resolved at read time from the live category row, so a rename propagates
+  to every task label and picker on the next render — no denormalized
+  copies to update, and edits saved against a stale picker still store the
+  unchanged id and show the CURRENT name (S14).
+- **Adopted indexes** (D6): `categories(userId, nameKey)` (uniqueness +
+  list scan) and `tasks(categoryId)` for the link FK, exactly as specified.
+- **No new dependencies, no new env vars** (D11): the feature reuses the
+  established stack — Zod, shadcn/ui dialogs, the five-step server-action
+  contract, and the existing configuration.
 
 ## Troubleshooting
 
