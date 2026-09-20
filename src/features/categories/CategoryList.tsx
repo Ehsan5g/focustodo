@@ -1,9 +1,11 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { CategoryDto } from "@/server/categories/service";
 import { CategoryForm } from "@/features/categories/CategoryForm";
+import { DeleteCategoryDialog } from "@/features/categories/DeleteCategoryDialog";
 import { useCreateCategorySurfaceOptional } from "@/features/categories/create-category-surface";
 import {
   updateCategoryAction,
@@ -77,7 +79,9 @@ const controlClass =
  * shows the CURRENT server state — including a rename from another tab.
  */
 function CategoryItem({ category }: { category: CategoryDto }) {
+  const router = useRouter();
   const [renameOpen, setRenameOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const focusedRef = useRef(false);
 
@@ -135,6 +139,15 @@ function CategoryItem({ category }: { category: CategoryDto }) {
         >
           <span aria-hidden="true">✎</span> Rename
         </button>
+        <button
+          type="button"
+          data-testid="delete-category"
+          aria-label={`Delete ${category.name}`}
+          onClick={() => setDeleteOpen(true)}
+          className={controlClass}
+        >
+          <span aria-hidden="true">🗑</span> Delete
+        </button>
       </div>
       {renameOpen && (
         <div
@@ -169,6 +182,13 @@ function CategoryItem({ category }: { category: CategoryDto }) {
           </div>
         </div>
       )}
+      <DeleteCategoryDialog
+        categoryId={category.id}
+        categoryName={category.name}
+        open={deleteOpen}
+        onDeleted={() => router.refresh()}
+        onClose={() => setDeleteOpen(false)}
+      />
     </li>
   );
 }

@@ -522,3 +522,128 @@ test("US3 S14: a task edit saved after a rename in another tab shows the CURRENT
     .poll(async () => taskCategoryId(email, "Sync target"))
     .toBe(renamedId);
 });
+
+// ——— F004 US4 (T029): delete confirmation, SetNull reassignment, stale tab ———
+
+/** Open a row's delete confirmation via its per-row control (exact-name scoped). */
+async function openDeleteSurface(page: Page, currentName: string) {
+  await page
+    .getByTestId("category-item")
+    .filter({ has: page.getByText(currentName, { exact: true }) })
+    .getByTestId("delete-category")
+    .click();
+  const surface = page.getByTestId("delete-category-surface");
+  await expect(surface).toBeVisible();
+  return surface;
+}
+
+test("US4 S11/SC-004: confirming the delete removes the category from the list AND the picker while its tasks stay, uncategorized", async ({
+  page,
+}) => {
+  const email = await registerUser(page);
+  await openCategories(page);
+  await createCategoryViaUi(page, "Work");
+  const categoryId = await findCategoryId(email, "work");
+  expect(categoryId).toBeTruthy();
+
+  await page.goto(`${BASE_URL}/`);
+  await createTaskViaUi(page, "Report", "Work");
+  await createTaskViaUi(page, "Invoice", "Work");
+  await expect(page.getByTestId("category-badge")).toHaveText(["Work", "Work"]);
+
+  await openCategories(page);
+  const surface = await openDeleteSurface(page, "Work");
+  // The confirmation copy states the reassignment outcome (FR-010, US4.1).
+  await expect(page.getByText(/not deleted/i)).toBeVisible();
+  await page.getByRole("button", { name: "Delete category" }).click();
+  await expect(surface).toHaveCount(0);
+  await expect(page.getByTestId("category-empty-state")).toBeVisible();
+  expect(await countCategories(email, "work")).toBe(0);
+
+  // Gone from the picker…
+  await page.goto(`${BASE_URL}/`);
+  await page.getByTestId("edit-task").first().click();
+  await expect(page.getByTestId("edit-task-surface")).toBeVisible();
+  const picker = page.getByLabel("Category");
+  const pickerValues = await picker.evaluate((element) =>
+    Array.from((element as HTMLSelectElement).options).map(
+      (option) => option.value,
+    ),
+  );
+  expect(pickerValues).not.toContain(categoryId);
+
+  // …and BOTH tasks are intact with NO category link (SetNull — D2: the
+  // deletion touches only links, never task rows).
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("edit-task-surface")).toHaveCount(0);
+  await expect(page.getByTestId("category-badge")).toHaveCount(0);
+  await expect(page.getByText("Report")).toBeVisible();
+  await expect(page.getByText("Invoice")).toBeVisible();
+  await expect.poll(async () => taskCategoryId(email, "Report")).toBe(null);
+  await expect.poll(async () => taskCategoryId(email, "Invoice")).toBe(null);
+});
+
+test("US4 S10: cancelling the confirmation leaves the category and its assignments untouched", async ({
+  page,
+}) => {
+  const email = await registerUser(page);
+  await openCategories(page);
+  await createCategoryViaUi(page, "Keep me");
+  const categoryId = await findCategoryId(email, "keep me");
+  expect(categoryId).toBeTruthy();
+
+  await page.goto(`${BASE_URL}/`);
+  await createTaskViaUi(page, "Anchored", "Keep me");
+  await expect
+    .poll(async () => taskCategoryId(email, "Anchored"))
+    .toBe(categoryId);
+
+  await openCategories(page);
+  const surface = await openDeleteSurface(page, "Keep me");
+  await page.getByTestId("delete-category-cancel").click();
+  await expect(surface).toHaveCount(0);
+  await expect(page.getByTestId("category-name")).toHaveText(["Keep me"]);
+  expect(await countCategories(email, "keep me")).toBe(1);
+  // The assignment still points at the same, never-deleted category id.
+  await expect
+    .poll(async () => taskCategoryId(email, "Anchored"))
+    .toBe(categoryId);
+});
+
+test("US4 S13: a stale delete of an already-deleted category shows friendly feedback and the list recovers", async ({
+  page,
+}) => {
+  const email = await registerUser(page);
+  await openCategories(page);
+  await createCategoryViaUi(page, "Vanishing");
+  // Wait for the creation revalidation to settle so the row we remove really
+  // is only "stale-render stale", not still in flight.
+  await expect(page.getByText("Vanishing")).toBeVisible();
+
+  // Simulate the other tab deleting the row out from under this stale
+  // render: remove it directly in the database (F003's stale-delete trick).
+  const { rows } = await pool.query<{ id: string }>(
+    'SELECT c.id FROM categories c JOIN users u ON u.id = c."userId" WHERE u.email = $1',
+    [email],
+  );
+  expect(rows).toHaveLength(1);
+  await pool.query("DELETE FROM categories WHERE id = $1", [rows[0]!.id]);
+
+  // The page still shows the category (stale render); delete it there.
+  const surface = await openDeleteSurface(page, "Vanishing");
+  await page.getByRole("button", { name: "Delete category" }).click();
+
+  // Friendly feedback, no crash. Per the D9/D12 contract the dialog stays
+  // open with the message inside; the user dismisses it themselves.
+  await expect(
+    page.getByText(/no longer exists|refresh to see/i),
+  ).toBeVisible();
+  await expect(surface).toBeVisible();
+  await page.getByTestId("delete-category-cancel").click();
+  await expect(surface).toHaveCount(0);
+
+  // The list recovers: a reload reflects the server state (row is gone).
+  await page.reload();
+  await expect(page.getByText("Vanishing")).toHaveCount(0);
+  await expect(page.getByTestId("category-empty-state")).toBeVisible();
+});

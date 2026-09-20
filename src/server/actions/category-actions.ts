@@ -11,6 +11,7 @@ import {
 import { requireSession } from "@/server/auth/session";
 import {
   createCategory as createCategoryInService,
+  deleteCategory as deleteCategoryInService,
   updateCategory as updateCategoryInService,
   type CategoryDto,
 } from "@/server/categories/service";
@@ -174,6 +175,59 @@ export async function updateCategoryAction(
     const diagnostic =
       error instanceof Error ? error.message : "unexpected error shape";
     process.stderr.write(`updateCategoryAction failed: ${diagnostic}\n`);
+    return { status: "failure", message: GENERIC_FAILURE_MESSAGE };
+  }
+}
+
+export type CategoryDeleteResult =
+  { status: "success" } | { status: "failure"; message: string };
+
+/**
+ * deleteCategory (T030) — the five steps, in order:
+ * 1. Validate the id through the shared `categoryIdSchema` — a malformed id
+ *    is indistinguishable from a gone one (one friendly message, D4).
+ * 2. Authenticate: requireSession() derives the owner id.
+ * 3+4. Authorize + execute: ownership IS the deletion predicate — the
+ *    service's owner-scoped `deleteMany` (F003's D10 pattern). A `false`
+ *    stops everything: foreign, already-deleted, and unknown ids are
+ *    indistinguishable (D4). The `SetNull` FK nulls ONLY the task links —
+ *    the tasks themselves keep every other field (D2, FR-011).
+ * 5. Return the union — never a raw DB object — and revalidate BOTH
+ *    surfaces: the management list AND the tasks page (badges drop by
+ *    reference, zero task writes).
+ */
+export async function deleteCategoryAction(
+  categoryId: string,
+): Promise<CategoryDeleteResult> {
+  // Step 1: validate.
+  const parsedId = categoryIdSchema.safeParse(categoryId);
+  if (!parsedId.success) {
+    return { status: "failure", message: CATEGORY_GONE_MESSAGE };
+  }
+
+  // Step 2: authenticate.
+  const session = await requireSession();
+  if (!session) {
+    return { status: "failure", message: "Please sign in to continue." };
+  }
+
+  // Steps 3+4: authorize + execute — ownership IS the deletion predicate.
+  try {
+    const deleted = await deleteCategoryInService(
+      session.user.id,
+      parsedId.data,
+    );
+    if (!deleted) {
+      return { status: "failure", message: CATEGORY_GONE_MESSAGE };
+    }
+    // Step 5: return + revalidate both surfaces (the task badges drop).
+    revalidatePath("/categories");
+    revalidatePath("/");
+    return { status: "success" };
+  } catch (error) {
+    const diagnostic =
+      error instanceof Error ? error.message : "unexpected error shape";
+    process.stderr.write(`deleteCategoryAction failed: ${diagnostic}\n`);
     return { status: "failure", message: GENERIC_FAILURE_MESSAGE };
   }
 }

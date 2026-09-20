@@ -9,6 +9,13 @@ import type { CategoryDto } from "@/server/categories/service";
 // component tests replace that boundary (D12), never loading Prisma/session.
 vi.mock("@/server/actions/category-actions", () => ({
   updateCategoryAction: vi.fn(),
+  deleteCategoryAction: vi.fn(),
+}));
+
+// CategoryItem uses next/navigation's useRouter for the delete resync;
+// standalone jsdom renders mock it (F003 TaskItem test pattern).
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn() }),
 }));
 
 /**
