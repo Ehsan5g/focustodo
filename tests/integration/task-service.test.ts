@@ -28,7 +28,10 @@ let userId: string;
 
 async function makeTask(overrides: Partial<Record<string, unknown>> = {}) {
   const input = createTaskSchema.parse({ title: "Base task", ...overrides });
-  return createTask(userId, input);
+  // F004: createTask is a union — unwrap for the fixture-style helper.
+  const result = await createTask(userId, input);
+  if (!result.ok) throw new Error("expected ok:true");
+  return result.task;
 }
 
 beforeEach(async () => {

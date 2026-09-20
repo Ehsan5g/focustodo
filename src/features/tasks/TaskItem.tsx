@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import type { TaskDto } from "@/server/tasks/service";
+import type { CategoryDto } from "@/server/categories/service";
 import { isOverdue } from "@/server/tasks/rules";
 import { DeleteConfirmDialog } from "@/features/tasks/DeleteConfirmDialog";
 import { TaskEditSurface } from "@/features/tasks/TaskEditSurface";
@@ -43,11 +44,14 @@ const PRIORITY_BADGES: Record<
 export function TaskItem({
   task,
   today,
+  categories,
   onEdit,
   onDelete,
 }: {
   task: TaskDto;
   today: Date;
+  /** F004: the owner's categories for the edit surface's picker. */
+  categories?: CategoryDto[];
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
@@ -82,6 +86,12 @@ export function TaskItem({
             <span aria-hidden="true">{priorityBadge.icon}</span>
             {priorityBadge.label}
           </span>
+          {/* F004 (FR-005): the category NAME as text — never color alone. */}
+          {task.categoryName && (
+            <span className={badgeClass} data-testid="category-badge">
+              {task.categoryName}
+            </span>
+          )}
           {overdue && (
             <span
               className="inline-flex items-center gap-1 rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700 dark:border-red-700 dark:bg-red-950 dark:text-red-300"
@@ -129,6 +139,7 @@ export function TaskItem({
 
       <TaskEditSurface
         task={task}
+        categories={categories}
         open={editOpen}
         onClose={() => setEditOpen(false)}
       />

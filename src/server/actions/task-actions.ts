@@ -12,6 +12,7 @@ import {
   type TaskDto,
 } from "@/server/tasks/service";
 import {
+  CATEGORY_GONE_MESSAGE,
   GENERIC_FAILURE_MESSAGE,
   TASK_GONE_MESSAGE,
   TRANSITION_REJECTED_MESSAGE,
@@ -38,7 +39,8 @@ import {
  */
 
 export type TaskFieldErrors = {
-  field: "title" | "description" | "dueDate" | "priority" | "status";
+  field:
+    "title" | "description" | "dueDate" | "priority" | "status" | "categoryId";
   message: string;
 }[];
 
@@ -57,6 +59,7 @@ const ACTION_FIELDS = [
   "dueDate",
   "priority",
   "status",
+  "categoryId",
 ] as const;
 
 function validationError(zodError: z.ZodError): TaskActionResult {
@@ -97,6 +100,9 @@ export async function createTaskAction(
     dueDate: formData.get("dueDate") || undefined,
     priority: formData.get("priority") || undefined,
     status: formData.get("status") || undefined,
+    // F004: the picker posts "" (No category) or an option value; an absent
+    // field parses to null (no category) via the shared schema.
+    categoryId: formData.get("categoryId") ?? null,
   });
   if (!parsed.success) return validationError(parsed.error);
 
@@ -109,12 +115,16 @@ export async function createTaskAction(
   // Step 3: authorize — the owner id comes ONLY from the session; there is
   // nothing further to check for a create into one's own list.
 
-  // Step 4: execute.
+  // Step 4: execute (F004: the union carries the category resolution).
   try {
-    const task = await createTaskInService(session.user.id, parsed.data);
+    const result = await createTaskInService(session.user.id, parsed.data);
+    if (!result.ok) {
+      // A foreign or unknown categoryId wrote NOTHING (FR-005, D9).
+      return { status: "failure", message: CATEGORY_GONE_MESSAGE };
+    }
     // Step 5: return + revalidate the list.
     revalidatePath("/");
-    return { status: "success", task };
+    return { status: "success", task: result.task };
   } catch (error) {
     // Server-side diagnostic (constitution V): message only — no task
     // content, no stack internals beyond the error's own message.
@@ -220,6 +230,11 @@ export async function updateTaskAction(
     status: formData.has("status")
       ? formData.get("status") || undefined
       : undefined,
+    // F004: the picker always posts the field when rendered — "" clears
+    // (FR-006). An absent field (no picker in the form) means "no change".
+    categoryId: formData.has("categoryId")
+      ? (formData.get("categoryId") ?? null)
+      : undefined,
   });
   if (!parsed.success) return validationError(parsed.error);
 
@@ -243,6 +258,10 @@ export async function updateTaskAction(
     }
     if (result.reason === "not_found") {
       return { status: "failure", message: TASK_GONE_MESSAGE };
+    }
+    if (result.reason === "category_not_found") {
+      // A foreign or unknown categoryId wrote NOTHING (FR-005, D9).
+      return { status: "failure", message: CATEGORY_GONE_MESSAGE };
     }
     return {
       status: "validation_error",

@@ -35,6 +35,8 @@ type Row = {
   categoryId: string | null;
   createdAt: Date;
   updatedAt: Date;
+  /** F004 (D5): the joined category name, present when the select includes it. */
+  category?: { name: string } | null;
 };
 
 const row: Row = {
@@ -63,6 +65,9 @@ function makeDb(overrides: Record<string, unknown> = {}) {
       update: vi.fn().mockResolvedValue(makeTaskRow()),
       deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
       ...overrides,
+    },
+    category: {
+      findFirst: vi.fn().mockResolvedValue({ id: "cat-1", name: "Work" }),
     },
   };
 }
@@ -97,6 +102,7 @@ describe("listTasks (read contract — only UI fields, newest first)", () => {
     expect(arg.orderBy).toEqual({ createdAt: "desc" });
     expect(Object.keys(arg.select).sort()).toEqual(
       [
+        "category",
         "createdAt",
         "description",
         "dueDate",
@@ -115,6 +121,9 @@ describe("listTasks (read contract — only UI fields, newest first)", () => {
       priority: "MEDIUM",
       dueDate: "2026-06-01",
       createdAt: "2026-05-01T10:00:00.000Z",
+      // F004 T018 (D5): the category NAME travels with the task read.
+      categoryName: null,
+      categoryId: null,
     });
     expect(dtos[0]).not.toHaveProperty("userId");
   });
@@ -129,7 +138,7 @@ describe("listTasks (read contract — only UI fields, newest first)", () => {
   });
 });
 
-describe("createTask (US1)", () => {
+describe("createTask (US1 — result union; F004 adds the category reason)", () => {
   it("writes with the owner id and returns the mapped DTO", async () => {
     const db = makeDb();
     setDbForTests(db as never);
@@ -137,7 +146,8 @@ describe("createTask (US1)", () => {
       title: "New task",
       dueDate: "2026-06-01",
     });
-    const dto = await createTask("user-1", input);
+    const result = await createTask("user-1", input);
+    if (!result.ok) throw new Error("expected ok:true");
     const arg = db.task.create.mock.calls[0]?.[0];
     expect(arg.data).toEqual({
       title: "New task",
@@ -145,10 +155,11 @@ describe("createTask (US1)", () => {
       status: "TODO",
       priority: "MEDIUM",
       dueDate,
+      categoryId: null,
       userId: "user-1",
     });
-    expect(dto.dueDate).toBe("2026-06-01");
-    expect(dto).not.toHaveProperty("userId");
+    expect(result.task.dueDate).toBe("2026-06-01");
+    expect(result.task).not.toHaveProperty("userId");
   });
 });
 
@@ -163,6 +174,7 @@ describe("updateTask (US2/US4 — loads the scoped row, consults the matrix)", (
     });
     expect(db.task.findFirst).toHaveBeenCalledWith({
       where: { id: "task-1", userId: "user-1" },
+      select: { categoryId: true, status: true },
     });
     expect(db.task.update).toHaveBeenCalledWith({
       where: { id: "task-1" },
@@ -241,5 +253,101 @@ describe("deleteTask (US5 — D10: ownership IS the deletion predicate)", () => 
     const db = makeDb({ deleteMany: vi.fn().mockResolvedValue({ count: 0 }) });
     setDbForTests(db as never);
     await expect(deleteTask("user-1", "gone")).resolves.toBe(false);
+  });
+});
+
+describe("createTask/updateTask — categoryId resolution (F004 T018, FR-005/FR-006)", () => {
+  const baseFields = { title: "Categorized", dueDate: "2026-06-01" };
+
+  it("resolves the categoryId BEFORE the write and persists categoryId: null for no category", async () => {
+    const db = makeDb();
+    setDbForTests(db as never);
+    const input = createTaskSchema.parse({
+      ...baseFields,
+      categoryId: null,
+    });
+    const result = await createTask("user-1", input);
+    if (!result.ok) throw new Error("expected ok:true");
+    // Only a NON-null categoryId is resolved — no category skips the lookup.
+    expect(db.category.findFirst).not.toHaveBeenCalled();
+    const arg = db.task.create.mock.calls[0]?.[0];
+    expect(arg.data).toEqual({
+      title: "Categorized",
+      description: null,
+      status: "TODO",
+      priority: "MEDIUM",
+      dueDate,
+      categoryId: null,
+      userId: "user-1",
+    });
+  });
+
+  it("assigns an owned category id", async () => {
+    const db = makeDb({
+      create: vi
+        .fn()
+        .mockResolvedValue(
+          makeTaskRow({ categoryId: "cat-1", category: { name: "Work" } }),
+        ),
+    });
+    setDbForTests(db as never);
+    const input = createTaskSchema.parse({
+      ...baseFields,
+      categoryId: "cat-1",
+    });
+    const result = await createTask("user-1", input);
+    if (!result.ok) throw new Error("expected ok:true");
+    expect(db.category.findFirst).toHaveBeenCalledWith({
+      where: { id: "cat-1", userId: "user-1" },
+      select: { id: true },
+    });
+    expect(db.task.create.mock.calls[0]?.[0].data).toMatchObject({
+      categoryId: "cat-1",
+    });
+    expect(result.task.categoryName).toBe("Work");
+  });
+
+  it("rejects a foreign or unknown category with category_not_found and no write", async () => {
+    const db = makeDb();
+    db.category.findFirst.mockResolvedValue(null);
+    setDbForTests(db as never);
+    const input = createTaskSchema.parse({
+      ...baseFields,
+      categoryId: "cat-other",
+    });
+    const result = await createTask("user-1", input);
+    expect(result).toEqual({ ok: false, reason: "category_not_found" });
+    expect(db.task.create).not.toHaveBeenCalled();
+  });
+
+  it("updateTask resolves the category too and writes { categoryId } (not connect)", async () => {
+    const db = makeDb({
+      update: vi
+        .fn()
+        .mockResolvedValue(
+          makeTaskRow({ categoryId: "cat-1", category: { name: "Work" } }),
+        ),
+    });
+    setDbForTests(db as never);
+    const input = updateTaskSchema.parse({ categoryId: "cat-1" });
+    const result = await updateTask("user-1", "task-1", input);
+    if (!result.ok) throw new Error("expected ok:true");
+    expect(db.task.update).toHaveBeenCalledWith({
+      where: { id: "task-1" },
+      data: { categoryId: "cat-1" },
+    });
+    expect(result.task.categoryName).toBe("Work");
+  });
+
+  it("updateTask with categoryId: null clears the assignment", async () => {
+    const db = makeDb();
+    setDbForTests(db as never);
+    const input = updateTaskSchema.parse({ categoryId: null });
+    const result = await updateTask("user-1", "task-1", input);
+    if (!result.ok) throw new Error("expected ok:true");
+    expect(db.task.update).toHaveBeenCalledWith({
+      where: { id: "task-1" },
+      data: { categoryId: null },
+    });
   });
 });

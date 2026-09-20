@@ -7,6 +7,7 @@ import {
   updateTaskAction,
   type TaskActionResult,
 } from "@/server/actions/task-actions";
+import type { CategoryDto } from "@/server/categories/service";
 import type { TaskDto } from "@/server/tasks/service";
 
 /**
@@ -21,17 +22,27 @@ import type { TaskDto } from "@/server/tasks/service";
  */
 export function TaskEditSurface({
   task,
+  categories,
   open,
   onClose,
 }: {
   task: TaskDto;
+  /** F004: the owner's categories for the assignment picker. */
+  categories?: CategoryDto[];
   open: boolean;
   onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
-  // Snapshot the DTO on open so re-renders of the parent list (e.g. after a
-  // toggle's refresh) never mutate the in-flight form's prefilled values.
-  const [snapshot] = useState(task);
+  // Snapshot the DTO so re-renders of the parent list (e.g. after a toggle's
+  // refresh) never mutate the IN-FLIGHT form's prefilled values. The snapshot
+  // RESYNCS while the surface is closed (render-phase adjust — the same
+  // documented pattern as TaskForm's status check): reopening must pre-fill
+  // the CURRENT server state, including a category link assigned by a
+  // previous edit (F004 T017, S5's reopen prefill). While open it is frozen.
+  const [snapshot, setSnapshot] = useState(task);
+  if (!open && snapshot !== task) {
+    setSnapshot(task);
+  }
   const focusedRef = useRef(false);
 
   useEffect(() => {
@@ -94,12 +105,14 @@ export function TaskEditSurface({
         <TaskForm
           action={handleAction}
           taskId={snapshot.id}
+          categories={categories}
           initial={{
             title: snapshot.title,
             description: snapshot.description ?? "",
             dueDate: snapshot.dueDate ?? "",
             priority: snapshot.priority,
             status: snapshot.status,
+            categoryId: snapshot.categoryId ?? "",
           }}
           submitLabel="Save changes"
           cancelLabel="Cancel"

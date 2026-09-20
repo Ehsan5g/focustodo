@@ -20,6 +20,11 @@ import type { TaskPriority, TaskStatus } from "@/generated/prisma/client";
  * - status: default TODO; creation accepts any valid initial status
  *   (clarified FR-001). Transitions after creation are governed by the pure
  *   `validateTransition` rule, not by these schemas.
+ * - categoryId (F004 T018): optional on BOTH schemas — the "No category"
+ *   select value (empty string) normalizes to null (FR-006: clearing is a
+ *   first-class choice); a non-empty string is the id of an OWNED category,
+ *   with ownership resolved in the task service BEFORE any write (FR-005).
+ *   On update, an absent categoryId means "no change" (partial semantics).
  */
 
 export const TITLE_MAX_LENGTH = 120;
@@ -83,13 +88,34 @@ const baseTaskFields = {
   ),
   priority: taskPrioritySchema.default("MEDIUM"),
   status: taskStatusSchema.default("TODO"),
+  // F004 T018: same preprocess shape as dueDate — the empty "No category"
+  // select value and an explicit null both normalize to null; a whitespace
+  // only or non-string id is rejected (defense-in-depth — the picker only
+  // ever submits "" or a rendered option value).
+  categoryId: z.preprocess(
+    (value) => (value === "" || value == null ? null : value),
+    z.union([z.string().trim().min(1, "Category is required"), z.null()]),
+  ),
 };
 
 export const createTaskSchema = z.object(baseTaskFields);
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 
-/** Update: partial — only provided keys are changed; explicit null clears. */
-export const updateTaskSchema = createTaskSchema.partial();
+/**
+ * Update: partial — only provided keys are changed; explicit null clears.
+ * Built EXPLICITLY with `.optional()` fields rather than `.partial()`: in
+ * Zod 4 a partial over defaulted fields still APPLIES the defaults, which
+ * would leak priority/status into every update's data. Omitted keys stay
+ * absent here ("no change", F003 D2) — including categoryId (F004 T018).
+ */
+export const updateTaskSchema = z.object({
+  title: baseTaskFields.title.optional(),
+  description: baseTaskFields.description.optional(),
+  dueDate: baseTaskFields.dueDate.optional(),
+  priority: taskPrioritySchema.optional(),
+  status: taskStatusSchema.optional(),
+  categoryId: baseTaskFields.categoryId.optional(),
+});
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
 
 export const taskIdSchema = z

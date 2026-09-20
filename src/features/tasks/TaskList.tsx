@@ -1,6 +1,7 @@
 "use client";
 
 import type { TaskDto } from "@/server/tasks/service";
+import type { CategoryDto } from "@/server/categories/service";
 
 import { TaskItem } from "@/features/tasks/TaskItem";
 
@@ -15,12 +16,15 @@ import { TaskItem } from "@/features/tasks/TaskItem";
 export function TaskList({
   tasks,
   today,
+  categories,
   onCreateClick,
   onEdit,
   onDelete,
 }: {
   tasks: TaskDto[];
   today: Date;
+  /** F004: the owner's categories, passed down to each row's edit surface. */
+  categories?: CategoryDto[];
   onCreateClick?: () => void;
   onEdit?: (task: TaskDto) => void;
   onDelete?: (task: TaskDto) => void;
@@ -54,6 +58,7 @@ export function TaskList({
           key={task.id}
           task={task}
           today={today}
+          categories={categories}
           onEdit={onEdit ? () => onEdit(task) : undefined}
           onDelete={onDelete ? () => onDelete(task) : undefined}
         />

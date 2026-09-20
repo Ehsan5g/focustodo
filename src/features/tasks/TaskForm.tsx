@@ -3,9 +3,11 @@
 import { useActionState, useCallback, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { CategoryPicker } from "@/features/categories/CategoryPicker";
 import { type TaskActionResult } from "@/server/actions/task-actions";
 import { validateTransition } from "@/server/tasks/rules";
 import { TRANSITION_REJECTED_MESSAGE } from "@/server/actions/task-messages";
+import type { CategoryDto } from "@/server/categories/service";
 
 /**
  * TaskForm (feature 003-task-management, T014; contracts/
@@ -23,6 +25,12 @@ import { TRANSITION_REJECTED_MESSAGE } from "@/server/actions/task-messages";
  *
  * The action is injected as a prop so component tests (T011) can substitute
  * a mock; the page passes the real `createTaskAction` (T015).
+ *
+ * F004 (T016/T017): the category assignment renders via CategoryPicker —
+ * "No category" is the default and assignment is never forced (FR-006);
+ * with no categories yet the picker degrades to an empty state that links
+ * to /categories. The server resolves the submitted id against the owner
+ * (FR-005) — a foreign id surfaces the friendly CATEGORY_GONE message.
  */
 
 export type TaskFormAction = (
@@ -36,6 +44,8 @@ export type TaskFormValues = {
   dueDate?: string;
   priority?: "LOW" | "MEDIUM" | "HIGH";
   status?: "TODO" | "IN_PROGRESS" | "COMPLETED";
+  /** F004: the edit surface's current assignment; "" / null = no category. */
+  categoryId?: string | null;
 };
 
 const INITIAL_STATE = null;
@@ -47,6 +57,7 @@ export function TaskForm({
   cancelLabel,
   onCancel,
   taskId,
+  categories = [],
 }: {
   action: TaskFormAction;
   initial?: TaskFormValues;
@@ -56,6 +67,8 @@ export function TaskForm({
   onCancel?: () => void;
   /** When set, submitted as a hidden `taskId` field (edit surface, US4). */
   taskId?: string;
+  /** F004: the owner's categories for the assignment picker (may be empty). */
+  categories?: CategoryDto[];
 }) {
   // D8 single-flight guard: the disabled button blocks user re-submission,
   // but a synchronous burst of submissions (e.g. scripted rapid clicks, D12
@@ -245,6 +258,18 @@ export function TaskForm({
           </p>
         )}
       </div>
+
+      {/* F004 (T016): the assignment picker — self-degrading to an empty
+          state when the user has no categories yet (FR-006). */}
+      <CategoryPicker
+        categories={categories}
+        initialCategoryId={initial?.categoryId ?? undefined}
+      />
+      {errorFor("categoryId") && (
+        <p id="task-category-error" className="text-sm text-red-600">
+          {errorFor("categoryId")}
+        </p>
+      )}
 
       {state?.status === "failure" && (
         <p role="alert" className="text-sm text-red-600">

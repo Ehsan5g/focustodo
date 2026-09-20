@@ -214,6 +214,51 @@ describe("task-schema (research D1/D2 — shared Zod source of truth)", () => {
     });
   });
 
+  describe("categoryId (F004 T018 — assignment rides the task schemas, D3)", () => {
+    it("is optional and defaults to unset (null) when omitted", () => {
+      const result = createTaskSchema.safeParse(baseFields());
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.categoryId).toBeNull();
+    });
+
+    it("accepts a non-empty string to assign on BOTH schemas", () => {
+      for (const schema of [createTaskSchema, updateTaskSchema]) {
+        const result = schema.safeParse(baseFields({ categoryId: "cat-1" }));
+        expect(result.success).toBe(true);
+        if (result.success) expect(result.data.categoryId).toBe("cat-1");
+      }
+    });
+
+    it("accepts null to clear (FR-006 — No category is a first-class choice)", () => {
+      for (const schema of [createTaskSchema, updateTaskSchema]) {
+        const result = schema.safeParse(baseFields({ categoryId: null }));
+        expect(result.success).toBe(true);
+        if (result.success) expect(result.data.categoryId).toBeNull();
+      }
+    });
+
+    it("normalizes the No category select value (empty string) to null", () => {
+      const result = createTaskSchema.safeParse(baseFields({ categoryId: "" }));
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.categoryId).toBeNull();
+    });
+
+    it("rejects a whitespace-only or non-string categoryId", () => {
+      expect(
+        createTaskSchema.safeParse(baseFields({ categoryId: "   " })).success,
+      ).toBe(false);
+      expect(
+        createTaskSchema.safeParse(baseFields({ categoryId: 42 })).success,
+      ).toBe(false);
+    });
+
+    it("updateTaskSchema leaves categoryId absent → no change (partial)", () => {
+      const result = updateTaskSchema.safeParse({ title: "Edited" });
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.categoryId).toBeUndefined();
+    });
+  });
+
   describe("taskIdSchema", () => {
     it("accepts a non-empty string", () => {
       expect(taskIdSchema.safeParse("cuid-123").success).toBe(true);

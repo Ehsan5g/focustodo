@@ -38,6 +38,8 @@ function makeTask(overrides: Partial<TaskDto> = {}): TaskDto {
     priority: "MEDIUM",
     dueDate: null,
     createdAt: "2026-09-19T00:00:00.000Z",
+    categoryId: null,
+    categoryName: null,
     ...overrides,
   };
 }
@@ -103,6 +105,21 @@ describe("TaskItem", () => {
       <TaskItem task={makeTask({ status: "COMPLETED" })} today={TODAY} />,
     );
     expect(screen.getByRole("button", { name: /Reopen/ })).toBeInTheDocument();
+  });
+});
+
+describe("TaskItem — category display (F004 T016, FR-005/FR-006)", () => {
+  it("shows the category name as a TEXT badge when the task has one", () => {
+    render(
+      <TaskItem task={makeTask({ categoryName: "Work" })} today={TODAY} />,
+    );
+    expect(screen.getByTestId("category-badge")).toBeInTheDocument();
+    expect(screen.getByText("Work")).toBeInTheDocument();
+  });
+
+  it("renders NO category badge when the task has none", () => {
+    render(<TaskItem task={makeTask({ categoryName: null })} today={TODAY} />);
+    expect(screen.queryByTestId("category-badge")).not.toBeInTheDocument();
   });
 });
 

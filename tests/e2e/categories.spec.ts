@@ -144,3 +144,199 @@ test("US1 S12: the first visit shows the empty state with its next action", asyn
   await page.getByTestId("empty-state-create-category").click();
   await expect(page.getByLabel("Category name")).toBeVisible();
 });
+
+// ——— F004 US2 (T017): per-task category assignment ———
+
+/** A's category id (ownership-scoped, nameKey-normalized — never by name alone). */
+async function findCategoryId(
+  email: string,
+  nameKey: string,
+): Promise<string | undefined> {
+  const { rows } = await pool.query<{ id: string }>(
+    'SELECT c.id FROM categories c JOIN users u ON u.id = c."userId" WHERE u.email = $1 AND c."nameKey" = $2',
+    [email, nameKey],
+  );
+  return rows[0]?.id;
+}
+
+/**
+ * The stored FK for one of the test's own tasks. The "missing" sentinel keeps
+ * `expect.poll` retrying until the row exists (optimistic UI, D3) — but a
+ * PRESENT row's NULL is a real cleared link (S6), never the sentinel.
+ */
+async function taskCategoryId(
+  email: string,
+  title: string,
+): Promise<string | null> {
+  const { rows } = await pool.query<{ categoryId: string | null }>(
+    'SELECT t."categoryId"::text AS "categoryId" FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email = $1 AND t.title = $2',
+    [email, title],
+  );
+  if (rows.length === 0) return "missing";
+  return rows[0]!.categoryId;
+}
+
+async function openTaskCreateSurface(page: Page) {
+  await page.getByRole("button", { name: "New task" }).click();
+  await expect(page.getByLabel("Title")).toBeVisible();
+}
+
+test("US2 S5: creating a task with a category persists the link and shows the badge", async ({
+  page,
+}) => {
+  const email = await registerUser(page);
+  await openCategories(page);
+  await createCategoryViaUi(page, "Work");
+  const categoryId = await findCategoryId(email, "work");
+  expect(categoryId).toBeTruthy();
+
+  await page.goto(`${BASE_URL}/`);
+  await openTaskCreateSurface(page);
+  await page.getByLabel("Title").fill("Buy milk");
+  await page.getByLabel("Category").selectOption({ label: "Work" });
+  await page.getByRole("button", { name: "Create task" }).click();
+  await expect(page.getByTestId("new-task-surface")).toHaveCount(0);
+
+  // The stored row carries the owner's category id (polled — never a sleep).
+  await expect
+    .poll(async () => taskCategoryId(email, "Buy milk"))
+    .toBe(categoryId);
+
+  // The server-rendered list joins the category name (reload settles the
+  // optimistic insert; the badge is the joined name, not the raw id).
+  await page.reload();
+  await expect(page.getByTestId("category-badge")).toHaveText("Work");
+});
+
+test("US2 S5: assigning a category on edit persists it and pre-fills on reopen", async ({
+  page,
+}) => {
+  const email = await registerUser(page);
+  await openCategories(page);
+  await createCategoryViaUi(page, "Personal");
+  const categoryId = await findCategoryId(email, "personal");
+  expect(categoryId).toBeTruthy();
+
+  await page.goto(`${BASE_URL}/`);
+  await openTaskCreateSurface(page);
+  await page.getByLabel("Title").fill("Errand");
+  await page.getByRole("button", { name: "Create task" }).click();
+  await expect(page.getByTestId("new-task-surface")).toHaveCount(0);
+
+  await page.getByTestId("edit-task").click();
+  const surface = page.getByTestId("edit-task-surface");
+  await expect(surface).toBeVisible();
+  // The picker starts on "No category" — the task has no link yet.
+  await expect(page.getByLabel("Category")).toHaveValue("");
+  await page.getByLabel("Category").selectOption({ label: "Personal" });
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(surface).toHaveCount(0);
+
+  await expect
+    .poll(async () => taskCategoryId(email, "Errand"))
+    .toBe(categoryId);
+
+  // Reopening the edit surface pre-fills the stored link (update UX).
+  await page.getByTestId("edit-task").click();
+  await expect(page.getByLabel("Category")).toHaveValue(categoryId!);
+  await page.keyboard.press("Escape");
+  await expect(surface).toHaveCount(0);
+});
+
+test("US2 S6: switching to “No category” clears the link (badge disappears)", async ({
+  page,
+}) => {
+  const email = await registerUser(page);
+  await openCategories(page);
+  await createCategoryViaUi(page, "Temp");
+  const categoryId = await findCategoryId(email, "temp");
+  expect(categoryId).toBeTruthy();
+
+  await page.goto(`${BASE_URL}/`);
+  await openTaskCreateSurface(page);
+  await page.getByLabel("Title").fill("Tagged");
+  await page.getByLabel("Category").selectOption({ label: "Temp" });
+  await page.getByRole("button", { name: "Create task" }).click();
+  await expect(page.getByTestId("new-task-surface")).toHaveCount(0);
+  await expect
+    .poll(async () => taskCategoryId(email, "Tagged"))
+    .toBe(categoryId);
+
+  await page.getByTestId("edit-task").click();
+  const surface = page.getByTestId("edit-task-surface");
+  await expect(surface).toBeVisible();
+  await page.getByLabel("Category").selectOption({ label: "No category" });
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(surface).toHaveCount(0);
+
+  // The empty option parses to a real NULL — the link is gone, not "".
+  await expect.poll(async () => taskCategoryId(email, "Tagged")).toBe(null);
+
+  await page.reload();
+  await expect(page.getByTestId("category-badge")).toHaveCount(0);
+});
+
+test("US2 S7/SC-003: B's picker never offers A's category and a forged submit is rejected", async ({
+  page,
+  browser,
+}) => {
+  // User A creates the category that B will try to steal.
+  const emailA = await registerUser(page);
+  await openCategories(page);
+  await createCategoryViaUi(page, "Work");
+  const foreignCategoryId = await findCategoryId(emailA, "work");
+  expect(foreignCategoryId).toBeTruthy();
+
+  // User B in a fully isolated browser context (independent session cookie).
+  const contextB = await browser.newContext();
+  const pageB = await contextB.newPage();
+  const emailB = await registerUser(pageB);
+  await openCategories(pageB);
+  await createCategoryViaUi(pageB, "Bobs own");
+  await pageB.goto(`${BASE_URL}/`);
+  await openTaskCreateSurface(pageB);
+  await pageB.getByLabel("Title").fill("Bobs task");
+  await pageB.getByRole("button", { name: "Create task" }).click();
+  await expect(pageB.getByTestId("new-task-surface")).toHaveCount(0);
+
+  // The picker offers only B's own categories — A's id is never an option.
+  await pageB.getByTestId("edit-task").click();
+  const surface = pageB.getByTestId("edit-task-surface");
+  await expect(surface).toBeVisible();
+  const optionValues = await pageB
+    .getByLabel("Category")
+    .evaluate((element) =>
+      Array.from((element as HTMLSelectElement).options).map(
+        (option) => option.value,
+      ),
+    );
+  expect(optionValues).not.toContain(foreignCategoryId);
+
+  // Force-submit the forged id anyway — the real threat is a hand-built
+  // request, not the rendered options.
+  await pageB.getByLabel("Category").evaluate((element, foreignId) => {
+    const select = element as HTMLSelectElement;
+    const forged = document.createElement("option");
+    forged.value = foreignId;
+    select.append(forged);
+    select.value = foreignId;
+  }, foreignCategoryId!);
+  await pageB.getByRole("button", { name: "Save changes" }).click();
+
+  // Friendly failure; the surface stays open with the message (D9 contract).
+  await expect(surface).toBeVisible();
+  await expect(pageB.getByText(/no longer available/i)).toBeVisible();
+
+  // Nothing was written: B's task still has no category link.
+  await expect
+    .poll(async () => {
+      const { rows } = await pool.query<{ count: number }>(
+        'SELECT COUNT(*)::int AS count FROM tasks t JOIN users u ON u.id = t."userId" WHERE u.email = $1 AND t.title = $2 AND t."categoryId" = $3',
+        [emailB, "Bobs task", foreignCategoryId],
+      );
+      return rows[0]?.count ?? -1;
+    })
+    .toBe(0);
+
+  await contextB.close();
+});

@@ -15,6 +15,7 @@ import {
   createTaskAction,
   type TaskActionResult,
 } from "@/server/actions/task-actions";
+import type { CategoryDto } from "@/server/categories/service";
 
 /**
  * Create-task surface context (feature 003-task-management, T014/T015/T019;
@@ -44,8 +45,11 @@ export function useCreateTaskSurface(): CreateTaskSurface {
 
 export function CreateTaskSurfaceProvider({
   children,
+  categories,
 }: {
   children: ReactNode;
+  /** F004: the owner's categories for the create form's assignment picker. */
+  categories?: CategoryDto[];
 }) {
   const [open, setOpen] = useState(false);
   const openCreateSurface = useCallback(() => setOpen(true), []);
@@ -100,7 +104,7 @@ export function CreateTaskSurfaceProvider({
             className="bg-card relative w-full max-w-lg rounded-t-xl border p-6 shadow-lg sm:rounded-xl"
           >
             <h2 className="mb-4 text-lg font-semibold">New task</h2>
-            <TaskForm action={handleAction} />
+            <TaskForm action={handleAction} categories={categories} />
           </div>
         </div>
       )}

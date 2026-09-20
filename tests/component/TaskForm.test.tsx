@@ -1,9 +1,10 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TaskForm } from "@/features/tasks/TaskForm";
 import type { TaskActionResult } from "@/server/actions/task-actions";
+import type { CategoryDto } from "@/server/categories/service";
 import { createTaskSchema } from "@/validation/task-schema";
 
 /**
@@ -28,6 +29,8 @@ const okResult: TaskActionResult = {
     priority: "MEDIUM",
     dueDate: null,
     createdAt: "2026-09-19T00:00:00.000Z",
+    categoryId: null,
+    categoryName: null,
   },
 };
 
@@ -139,4 +142,95 @@ it("gates re-submission while pending (double-submit prevention, D8)", async () 
   expect(action).toHaveBeenCalledTimes(1);
   resolveAction(okResult);
   await waitFor(() => expect(submit).toBeEnabled());
+});
+
+/**
+ * F004 T017 (FR-005/FR-006/FR-007): the category surface in the form.
+ */
+const okCategorizedResult: TaskActionResult = {
+  status: "success",
+  task: {
+    id: "task-2",
+    title: "Categorized",
+    description: null,
+    status: "TODO",
+    priority: "MEDIUM",
+    dueDate: null,
+    createdAt: "2026-09-19T00:00:00.000Z",
+    categoryId: "cat-1",
+    categoryName: "Work",
+  },
+};
+
+const categories: CategoryDto[] = [
+  { id: "cat-1", name: "Work" },
+  { id: "cat-2", name: "Errands" },
+];
+
+describe("TaskForm — category select (F004 T017)", () => {
+  it("shows No category first and defaults to it", () => {
+    render(<TaskForm action={mockAction()} categories={categories} />);
+    const select = screen.getByLabelText("Category");
+    const options = Array.from(select.querySelectorAll("option"));
+    expect(options.map((option) => option.textContent)).toEqual([
+      "No category",
+      "Work",
+      "Errands",
+    ]);
+    expect(select).toHaveValue("");
+  });
+
+  it("submits the selected categoryId through the shared schema", async () => {
+    const action = mockAction(okCategorizedResult);
+    const user = userEvent.setup();
+    render(<TaskForm action={action} categories={categories} />);
+    await user.type(screen.getByLabelText("Title"), "Categorized");
+    await user.selectOptions(screen.getByLabelText("Category"), "cat-1");
+    await user.click(screen.getByRole("button", { name: "Create task" }));
+
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    const formData = vi.mocked(action).mock.calls[0][1] as FormData;
+    const parsed = createTaskSchema.parse(Object.fromEntries(formData));
+    expect(parsed.categoryId).toBe("cat-1");
+  });
+
+  it("submits the empty option as categoryId null (FR-006 clearing)", async () => {
+    const action = mockAction();
+    const user = userEvent.setup();
+    render(
+      <TaskForm
+        action={action}
+        categories={categories}
+        initial={{ categoryId: "cat-2" }}
+      />,
+    );
+    expect(screen.getByLabelText("Category")).toHaveValue("cat-2");
+    await user.type(screen.getByLabelText("Title"), "Cleared cat");
+    await user.selectOptions(screen.getByLabelText("Category"), "");
+    await user.click(screen.getByRole("button", { name: "Create task" }));
+
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    const formData = vi.mocked(action).mock.calls[0][1] as FormData;
+    const parsed = createTaskSchema.parse(Object.fromEntries(formData));
+    expect(parsed.categoryId).toBeNull();
+  });
+
+  it("prefills the initial categoryId for the edit surface (FR-008)", () => {
+    render(
+      <TaskForm
+        action={mockAction()}
+        categories={categories}
+        initial={{ categoryId: "cat-2" }}
+      />,
+    );
+    expect(screen.getByLabelText("Category")).toHaveValue("cat-2");
+  });
+
+  it("renders the empty state with a next action when no categories exist (FR-006)", () => {
+    render(<TaskForm action={mockAction()} categories={[]} />);
+    expect(screen.getByTestId("category-picker-empty")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Create a category" }),
+    ).toHaveAttribute("href", "/categories");
+  });
 });

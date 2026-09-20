@@ -26,7 +26,9 @@ import type {
  *   via `isOverdue` (research D1); the service never stores or writes it.
  */
 
-/** The client-facing task shape (contracts/server-actions.md). */
+/** The client-facing task shape (contracts/server-actions.md). F004 T018
+ * (D5): the read joins the owner's category so the list can render the
+ * category NAME as text — the raw categoryId travels too (edit prefill). */
 export type TaskDto = {
   id: string;
   title: string;
@@ -37,9 +39,18 @@ export type TaskDto = {
   dueDate: string | null;
   /** ISO timestamp — the list's newest-first ordering key. */
   createdAt: string;
+  /** F004: the owner's category link, when the row carries the join. */
+  categoryId: string | null;
+  categoryName: string | null;
 };
 
-export function toTaskDto(row: Task): TaskDto {
+/** A task row that may carry the F004 category join (D5) — the mocked Prisma
+ * row in tests and the select-narrowed list row both fit this shape. */
+type TaskRowWithCategory = Task & {
+  category?: { id: string; name: string } | null;
+};
+
+export function toTaskDto(row: TaskRowWithCategory): TaskDto {
   return {
     id: row.id,
     title: row.title,
@@ -48,19 +59,23 @@ export function toTaskDto(row: Task): TaskDto {
     priority: row.priority,
     dueDate: row.dueDate ? row.dueDate.toISOString().slice(0, 10) : null,
     createdAt: row.createdAt.toISOString(),
+    categoryId: row.category?.id ?? null,
+    categoryName: row.category?.name ?? null,
   };
 }
 
 /**
- * Mutation outcome: `ok` carries the updated DTO; `not_found` covers unknown,
- * foreign, and already-deleted ids (one indistinguishable path, D9/D10);
- * `transition_rejected` is a field-level validation failure on `status` that
- * leaves the row untouched.
+ * Mutation outcome: `not_found` covers unknown, foreign, and already-deleted
+ * ids (one indistinguishable path, D9/D10); `transition_rejected` is a
+ * field-level validation failure on `status` that leaves the row untouched;
+ * `category_not_found` (F004) is the owner-scoped category resolution failure
+ * — it also performs NO write.
  */
 export type TaskMutationResult =
   | { ok: true; task: TaskDto }
   | { ok: false; reason: "not_found" }
-  | { ok: false; reason: "transition_rejected" };
+  | { ok: false; reason: "transition_rejected" }
+  | { ok: false; reason: "category_not_found" };
 
 // Test seam (D12): unit tests inject a mocked Prisma client instead of the
 // real singleton; production code never calls setDbForTests.
@@ -90,18 +105,37 @@ export async function listTasks(userId: string): Promise<TaskDto[]> {
       priority: true,
       dueDate: true,
       createdAt: true,
+      // F004 T018 (D5): the category join rides the ONE list read — the
+      // badge renders the name; the id prefills the edit surface.
+      category: { select: { id: true, name: true } },
     },
   });
-  return rows.map((row) => toTaskDto(row as Task));
+  return rows.map((row) => toTaskDto(row as TaskRowWithCategory));
 }
+
+/**
+ * F004 T018: creation's outcome is a union — a non-null categoryId that is
+ * foreign or unknown resolves to `category_not_found` with NO write.
+ */
+export type CreateTaskResult =
+  { ok: true; task: TaskDto } | { ok: false; reason: "category_not_found" };
 
 export async function createTask(
   userId: string,
   input: CreateTaskInput,
-): Promise<TaskDto> {
+): Promise<CreateTaskResult> {
   const db = await getDb();
+  // FR-005: resolve the category AGAINST THE OWNER before any write. A null
+  // categoryId skips the lookup entirely (no category = no join to check).
+  if (input.categoryId !== null) {
+    const category = await db.category.findFirst({
+      where: { id: input.categoryId, userId },
+      select: { id: true },
+    });
+    if (!category) return { ok: false, reason: "category_not_found" };
+  }
   const row = await db.task.create({ data: { ...input, userId } });
-  return toTaskDto(row);
+  return { ok: true, task: toTaskDto(row) };
 }
 
 export async function updateTask(
@@ -110,7 +144,13 @@ export async function updateTask(
   input: UpdateTaskInput,
 ): Promise<TaskMutationResult> {
   const db = await getDb();
-  const existing = await db.task.findFirst({ where: { id: taskId, userId } });
+  // Narrow scoped pre-read: the transition matrix needs `status`; F004 keeps
+  // the pre-read category-aware (`categoryId` rides along) while staying
+  // select-only — never the whole row.
+  const existing = await db.task.findFirst({
+    where: { id: taskId, userId },
+    select: { categoryId: true, status: true },
+  });
   if (!existing) return { ok: false, reason: "not_found" };
   const nextStatus = input.status ?? existing.status;
   if (
@@ -118,6 +158,16 @@ export async function updateTask(
     !validateTransition(existing.status, nextStatus)
   ) {
     return { ok: false, reason: "transition_rejected" };
+  }
+  // FR-005: same owner-scoped resolution as create. `undefined` means "no
+  // change" (partial semantics); a non-null id that is foreign or unknown
+  // performs NO write; an explicit null clears the link (FR-006).
+  if (input.categoryId !== undefined && input.categoryId !== null) {
+    const category = await db.category.findFirst({
+      where: { id: input.categoryId, userId },
+      select: { id: true },
+    });
+    if (!category) return { ok: false, reason: "category_not_found" };
   }
   const row = await db.task.update({ where: { id: taskId }, data: input });
   return { ok: true, task: toTaskDto(row) };
