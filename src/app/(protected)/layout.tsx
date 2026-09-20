@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { ProtectedNav } from "@/components/layout/protected-nav";
 import { SignOutButton } from "@/features/auth/SignOutButton";
 import { resolveSession } from "@/server/auth/session";
 
@@ -28,7 +29,10 @@ export default async function ProtectedLayout({
   return (
     <>
       <header className="border-border flex items-center justify-between border-b px-6 py-3">
-        <span className="font-semibold">FocusTodo</span>
+        <div className="flex items-center gap-6">
+          <span className="font-semibold">FocusTodo</span>
+          <ProtectedNav />
+        </div>
         {session && (
           <div className="flex items-center gap-3">
             <span className="text-muted-foreground text-sm">
