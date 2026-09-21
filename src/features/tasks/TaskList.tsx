@@ -4,6 +4,7 @@ import type { TaskDto } from "@/server/tasks/service";
 import type { CategoryDto } from "@/server/categories/service";
 
 import { TaskItem } from "@/features/tasks/TaskItem";
+import {useCreateTaskSurface} from "@/features/tasks/create-task-surface";
 
 /**
  * TaskList (feature 003-task-management, T019; contracts/
@@ -29,6 +30,8 @@ export function TaskList({
   onEdit?: (task: TaskDto) => void;
   onDelete?: (task: TaskDto) => void;
 }) {
+
+  const { openCreateSurface } = useCreateTaskSurface();
   if (tasks.length === 0) {
     return (
       <div
@@ -40,7 +43,10 @@ export function TaskList({
         </p>
         <button
           type="button"
-          onClick={onCreateClick}
+          onClick={()=>{
+            onCreateClick?.();
+            openCreateSurface();
+          }}
           className="bg-primary text-primary-foreground focus-visible:outline-ring inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2"
           data-testid="empty-state-create"
         >
